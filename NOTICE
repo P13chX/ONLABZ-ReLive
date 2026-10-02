@@ -1,0 +1,20 @@
+ONLABZ-ReLive
+Copyright 2026 Onliveable Co., Ltd.
+
+This product includes software developed by the datarhei project
+and contributors to Restreamer and datarhei Core.
+
+ONLABZ-ReLive includes modifications and additional components
+developed by Onliveable Co., Ltd., including control-plane services,
+permanent channel workflows, SRT telemetry, destination relay
+orchestration, technician monitoring, connection testing, incident
+monitoring, and related user interface components.
+
+Original upstream components remain subject to their respective
+license terms. The inherited Restreamer bundle in this repository is
+licensed under the Apache License, Version 2.0.
+
+ONLABZ-ReLive is not affiliated with, endorsed by, or dependent on
+Peplink, SpeedFusion, FusionHub, TikTok, YouTube, Facebook/Meta, or
+other third-party platforms. Third-party names are used only to
+describe interoperability and destination support.
