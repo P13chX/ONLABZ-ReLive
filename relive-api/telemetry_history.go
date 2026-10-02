@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -14,13 +15,23 @@ type telemetryCollector struct {
 	interval  time.Duration
 	retention time.Duration
 
-	mu   sync.Mutex
-	last map[int64]telemetryCounter
+	mu        sync.Mutex
+	last      map[int64]telemetryCounter
+	health    map[int64]string
+	candidate map[int64]healthCandidate
 }
 
 type telemetryCounter struct {
-	at    time.Time
-	bytes uint64
+	at      time.Time
+	bytes   uint64
+	packets uint64
+	retrans uint64
+	drop    uint64
+}
+
+type healthCandidate struct {
+	status string
+	count  int
 }
 
 type telemetryHistoryPoint struct {
@@ -41,6 +52,8 @@ func newTelemetryCollector(a *app) *telemetryCollector {
 		interval:envDuration("RELIVE_TELEMETRY_INTERVAL",2*time.Second),
 		retention:envDuration("RELIVE_TELEMETRY_RETENTION",24*time.Hour),
 		last:map[int64]telemetryCounter{},
+		health:map[int64]string{},
+		candidate:map[int64]healthCandidate{},
 	}
 }
 
@@ -98,6 +111,8 @@ func (c *telemetryCollector) collect(ctx context.Context) {
 		}
 
 		receiveMbps:=0.0
+		retransPct:=0.0
+		dropDelta:=uint64(0)
 		c.mu.Lock()
 		prev,hasPrev:=c.last[x.id]
 		if hasPrev {
@@ -105,9 +120,22 @@ func (c *telemetryCollector) collect(ctx context.Context) {
 			if dt>0 && stats.RecvUniqueBytes>=prev.bytes {
 				receiveMbps=float64(stats.RecvUniqueBytes-prev.bytes)*8/dt/1_000_000
 			}
+			packetDelta:=delta64(stats.RecvPktUnique,prev.packets)
+			retransDelta:=delta64(stats.RecvRetransPkt,prev.retrans)
+			dropDelta=delta64(stats.RecvDropPkt,prev.drop)
+			if packetDelta>0 {
+				retransPct=float64(retransDelta)/float64(packetDelta)*100
+			}
 		}
-		c.last[x.id]=telemetryCounter{at:now,bytes:stats.RecvUniqueBytes}
+		c.last[x.id]=telemetryCounter{
+			at:now,bytes:stats.RecvUniqueBytes,packets:stats.RecvPktUnique,
+			retrans:stats.RecvRetransPkt,drop:stats.RecvDropPkt,
+		}
 		c.mu.Unlock()
+
+		if hasPrev {
+			c.observeNetworkHealth(ctx,x.id,stats.RTTMs,stats.MbpsBandwidth,receiveMbps,retransPct,dropDelta)
+		}
 
 		_,err:=c.app.db.ExecContext(ctx,`
 			INSERT INTO telemetry_samples(
@@ -118,6 +146,45 @@ func (c *telemetryCollector) collect(ctx context.Context) {
 			stats.RecvTSBPDDelayMs,stats.RecvLossPkt,stats.RecvRetransPkt,stats.RecvDropPkt)
 		if err!=nil {
 			log.Printf("telemetry insert channel %d failed: %v",x.id,err)
+		}
+	}
+}
+
+func (c *telemetryCollector) observeNetworkHealth(ctx context.Context, channelID int64, rtt,link,receive,retransPct float64, dropDelta uint64) {
+	status:="healthy"
+	if dropDelta>0 || rtt>=400 || retransPct>=10 {
+		status="critical"
+	} else if rtt>=250 || retransPct>=3 || (link>0 && receive>0 && link<receive*1.25) {
+		status="warning"
+	}
+
+	c.mu.Lock()
+	cand:=c.candidate[channelID]
+	if cand.status==status {
+		cand.count++
+	} else {
+		cand=healthCandidate{status:status,count:1}
+	}
+	c.candidate[channelID]=cand
+	current:=c.health[channelID]
+	if current=="" { current="healthy"; c.health[channelID]=current }
+	if cand.count<3 || current==status {
+		c.mu.Unlock()
+		return
+	}
+	c.health[channelID]=status
+	c.mu.Unlock()
+
+	switch status {
+	case "critical":
+		_ = c.app.recordIncident(ctx,channelID,0,"critical","input_network_critical",
+			fmt.Sprintf("Input network critical: RTT %.0f ms, retrans %.1f%%, dropped +%d",rtt,retransPct,dropDelta))
+	case "warning":
+		_ = c.app.recordIncident(ctx,channelID,0,"warning","input_network_warning",
+			fmt.Sprintf("Input network unstable: RTT %.0f ms, retrans %.1f%%, receive %.2f Mbps",rtt,retransPct,receive))
+	case "healthy":
+		if current!="healthy" {
+			_ = c.app.recordIncident(ctx,channelID,0,"info","input_network_recovered","Input network recovered")
 		}
 	}
 }
