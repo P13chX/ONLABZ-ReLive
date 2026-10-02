@@ -172,6 +172,7 @@ func (m *relayManager) reconcileDestination(ctx context.Context, d relayDestinat
 	}
 
 	videoK,audioK,fps,audioPPS,audioStatus := mediaFromState(state)
+	integrity := evaluateBitstreamIntegrity(state)
 	status := "unknown"
 	lastError := ""
 	reconnectCount := d.ReconnectCount
@@ -209,24 +210,39 @@ func (m *relayManager) reconcileDestination(ctx context.Context, d relayDestinat
 	lastError = sanitizeRelayError(lastError,d)
 
 	return m.updateRuntime(ctx,d,status,d.CoreProcessID,(videoK+audioK)/1000.0,videoK,audioK,fps,audioStatus,reconnectCount,lastError,
-		audioPPS)
+		audioPPS,integrity)
 }
 
 func (m *relayManager) updateRuntime(ctx context.Context, d relayDestination, status, processID string,
-	outputMbps,videoKbps,audioKbps,fps float64,audioStatus string,reconnects int,lastError string, extra ...float64) error {
+	outputMbps,videoKbps,audioKbps,fps float64,audioStatus string,reconnects int,lastError string, extra ...any) error {
 	audioPPS := 0.0
-	if len(extra)>0 { audioPPS=extra[0] }
+	integrity := bitstreamIntegrity{Status:"unknown",Reasons:[]string{}}
+	if len(extra)>0 {
+		if v,ok:=extra[0].(float64); ok { audioPPS=v }
+	}
+	if len(extra)>1 {
+		if v,ok:=extra[1].(bitstreamIntegrity); ok { integrity=v }
+	}
 
 	statusChanged := d.Status != status
 	audioChanged := d.CurrentAudio != audioStatus
 
+	reasonsJSON,_:=json.Marshal(integrity.Reasons)
 	_,err := m.app.db.ExecContext(ctx,`
 		UPDATE destinations SET
 			status=$1,core_process_id=$2,output_bitrate_mbps=$3,video_bitrate_kbps=$4,
 			audio_bitrate_kbps=$5,fps=$6,audio_status=$7,audio_pps=$8,reconnect_count=$9,
-			last_error=$10,last_status_at=now(),updated_at=now()
-		WHERE id=$11`,
-		status,processID,outputMbps,videoKbps,audioKbps,fps,audioStatus,audioPPS,reconnects,lastError,d.ID)
+			last_error=$10,quality_status=$11,quality_reasons=$12,
+			source_video_codec=$13,output_video_codec=$14,source_resolution=$15,output_resolution=$16,
+			source_fps=$17,output_fps=$18,source_video_bitrate_kbps=$19,
+			source_audio_codec=$20,output_audio_codec=$21,source_audio_hz=$22,output_audio_hz=$23,
+			source_audio_channels=$24,output_audio_channels=$25,last_status_at=now(),updated_at=now()
+		WHERE id=$26`,
+		status,processID,outputMbps,videoKbps,audioKbps,fps,audioStatus,audioPPS,reconnects,lastError,
+		integrity.Status,reasonsJSON,integrity.SourceVideoCodec,integrity.OutputVideoCodec,
+		integrity.SourceResolution,integrity.OutputResolution,integrity.SourceFPS,integrity.OutputFPS,
+		integrity.SourceVideoBitrateKbps,integrity.SourceAudioCodec,integrity.OutputAudioCodec,
+		integrity.SourceAudioHz,integrity.OutputAudioHz,integrity.SourceAudioChannels,integrity.OutputAudioChannels,d.ID)
 	if err != nil { return err }
 
 	if statusChanged {
@@ -242,6 +258,10 @@ func (m *relayManager) updateRuntime(ctx context.Context, d relayDestination, st
 	}
 	if audioChanged && d.CurrentAudio=="missing" && audioStatus=="healthy" {
 		_ = m.app.recordIncident(ctx,d.ChannelID,d.ID,"info","audio_recovered",d.Name+": audio recovered")
+	}
+	if integrity.Status=="changed" {
+		_ = m.app.recordIncident(ctx,d.ChannelID,d.ID,"critical","quality_changed",
+			d.Name+": source quality changed in relay: "+strings.Join(integrity.Reasons,", "))
 	}
 	return nil
 }
