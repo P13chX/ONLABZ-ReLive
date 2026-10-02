@@ -109,7 +109,15 @@ func main() {
 	mux.HandleFunc("POST /api/v1/destinations", a.createDestination)
 	mux.HandleFunc("GET /api/v1/destinations/runtime", a.listDestinationRuntime)
 	mux.HandleFunc("POST /api/v1/destinations/{id}/runtime", a.updateDestinationRuntime)
+	mux.HandleFunc("POST /api/v1/destinations/{id}/command", a.destinationCommand)
 	mux.HandleFunc("GET /api/v1/channels/{id}/telemetry/live", a.channelLiveTelemetry)
+	mux.HandleFunc("GET /api/v1/channels/{id}/telemetry/history", a.telemetryHistory)
+	mux.HandleFunc("GET /api/v1/incidents", a.listIncidents)
+
+	runtimeCtx, runtimeCancel := context.WithCancel(context.Background())
+	defer runtimeCancel()
+	go newTelemetryCollector(a).run(runtimeCtx)
+	go newRelayManager(a).run(runtimeCtx)
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -229,6 +237,46 @@ ALTER TABLE destinations ADD COLUMN IF NOT EXISTS output_bitrate_mbps DOUBLE PRE
 ALTER TABLE destinations ADD COLUMN IF NOT EXISTS reconnect_count INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE destinations ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '';
 ALTER TABLE destinations ADD COLUMN IF NOT EXISTS last_status_at TIMESTAMPTZ;
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS channel_id BIGINT REFERENCES channels(id) ON DELETE CASCADE;
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS desired_state TEXT NOT NULL DEFAULT 'stopped';
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS core_process_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS video_bitrate_kbps DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS audio_bitrate_kbps DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS fps DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS audio_status TEXT NOT NULL DEFAULT 'unknown';
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS audio_pps DOUBLE PRECISION NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_destinations_channel ON destinations(channel_id);
+
+CREATE TABLE IF NOT EXISTS telemetry_samples (
+	id BIGSERIAL PRIMARY KEY,
+	channel_id BIGINT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+	observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	rtt_ms DOUBLE PRECISION NOT NULL DEFAULT 0,
+	bandwidth_mbit DOUBLE PRECISION NOT NULL DEFAULT 0,
+	receive_bitrate_mbit DOUBLE PRECISION NOT NULL DEFAULT 0,
+	recv_buffer_ms BIGINT NOT NULL DEFAULT 0,
+	srt_latency_ms BIGINT NOT NULL DEFAULT 0,
+	recv_loss_packets BIGINT NOT NULL DEFAULT 0,
+	recv_retrans_packets BIGINT NOT NULL DEFAULT 0,
+	recv_drop_packets BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_telemetry_samples_channel_time
+ON telemetry_samples(channel_id, observed_at DESC);
+
+CREATE TABLE IF NOT EXISTS incident_events (
+	id BIGSERIAL PRIMARY KEY,
+	channel_id BIGINT REFERENCES channels(id) ON DELETE CASCADE,
+	destination_id BIGINT REFERENCES destinations(id) ON DELETE SET NULL,
+	severity TEXT NOT NULL,
+	code TEXT NOT NULL,
+	message TEXT NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_incident_events_channel_time
+ON incident_events(channel_id, created_at DESC);
 `
 	_, err := db.ExecContext(ctx, schema)
 	return err
