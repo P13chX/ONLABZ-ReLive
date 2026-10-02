@@ -39,6 +39,7 @@ type relayDestination struct {
 	CoreProcessID   string
 	StreamID        string
 	CurrentAudio    string
+	CurrentQuality  string
 	LastError       string
 	ReconnectCount  int
 }
@@ -85,7 +86,7 @@ func (m *relayManager) reconcile(ctx context.Context) {
 	rows, err := m.app.db.QueryContext(ctx, `
 		SELECT d.id,d.channel_id,d.owner_id,d.name,d.platform,d.key_source,d.server_url,d.stream_key,
 			d.generator_ref,d.enabled,d.desired_state,d.status,d.core_process_id,c.stream_id,
-			d.audio_status,d.last_error,d.reconnect_count
+			d.audio_status,d.quality_status,d.last_error,d.reconnect_count
 		FROM destinations d
 		JOIN channels c ON c.id=d.channel_id
 		WHERE d.enabled=true AND d.channel_id IS NOT NULL
@@ -101,7 +102,7 @@ func (m *relayManager) reconcile(ctx context.Context) {
 		var d relayDestination
 		if err := rows.Scan(&d.ID,&d.ChannelID,&d.OwnerID,&d.Name,&d.Platform,&d.KeySource,&d.ServerURL,
 			&d.StreamKey,&d.GeneratorRef,&d.Enabled,&d.DesiredState,&d.Status,&d.CoreProcessID,
-			&d.StreamID,&d.CurrentAudio,&d.LastError,&d.ReconnectCount); err != nil {
+			&d.StreamID,&d.CurrentAudio,&d.CurrentQuality,&d.LastError,&d.ReconnectCount); err != nil {
 			log.Printf("relay manager scan failed: %v", err)
 			return
 		}
@@ -259,9 +260,13 @@ func (m *relayManager) updateRuntime(ctx context.Context, d relayDestination, st
 	if audioChanged && d.CurrentAudio=="missing" && audioStatus=="healthy" {
 		_ = m.app.recordIncident(ctx,d.ChannelID,d.ID,"info","audio_recovered",d.Name+": audio recovered")
 	}
-	if integrity.Status=="changed" {
+	if integrity.Status=="changed" && d.CurrentQuality!="changed" {
 		_ = m.app.recordIncident(ctx,d.ChannelID,d.ID,"critical","quality_changed",
 			d.Name+": source quality changed in relay: "+strings.Join(integrity.Reasons,", "))
+	}
+	if integrity.Status=="preserved" && d.CurrentQuality=="changed" {
+		_ = m.app.recordIncident(ctx,d.ChannelID,d.ID,"info","quality_recovered",
+			d.Name+": bitstream integrity restored")
 	}
 	return nil
 }
