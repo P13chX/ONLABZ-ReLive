@@ -472,6 +472,19 @@ Destination relay runtime comes from datarhei Core FFmpeg process state, rather 
 
 Telemetry is persisted in PostgreSQL. Default retention is 24 hours and can be changed with `RELIVE_TELEMETRY_RETENTION`.
 
+The Technician Console uses the current ONLIVEABLE visual system:
+
+- Ink: `#050708`
+- Panel: `#0A0D0F`
+- Panel light: `#111518`
+- Primary text: `#F4F4EF`
+- Muted text: `#A7ACAE`
+- Signal cyan: `#68EAD7`
+- Live / critical red: `#FF2D20`
+- Kanit-led typography with monospace technical labels
+
+See [docs/BRANDING.md](docs/BRANDING.md).
+
 # Development roadmap
 
 See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
@@ -506,4 +519,15 @@ The `2.x` branch is intentionally kept close to upstream while ReLive developmen
 
 # License
 
-The upstream Restreamer license remains applicable to the inherited project code. See [LICENSE](LICENSE).
+ONLABZ-ReLive is distributed under the **Apache License, Version 2.0**.
+
+This repository contains software derived from datarhei Restreamer / datarhei Core together with additional ONLIVEABLE-developed components.
+
+Copyright 2026 Onliveable Co., Ltd.
+
+See:
+
+- [LICENSE](LICENSE) — Apache License 2.0
+- [NOTICE](NOTICE) — upstream attribution and ONLIVEABLE modifications
+
+Third-party platform names are used only to describe interoperability. ReLive does not require or depend on Peplink, SpeedFusion, FusionHub, or any specific bonding platform.
