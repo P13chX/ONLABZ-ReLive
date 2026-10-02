@@ -413,7 +413,7 @@ func (a *app) createTest(w http.ResponseWriter, r *http.Request) {
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
 		c.ID,in.RTTAvgMs,in.RTTMaxMs,in.PacketLossPct,in.RetransmitPct,in.BitrateVariancePct,
 		in.AudioDropCount,in.ReconnectCount,rec.Result,rec.NetworkHealth,
-		rec.RecommendedVideoKbps,rec.RecommendedSRTLatencyMs,reasons)
+		rec.RecommendedVideoKbps,rec.RecommendedSRTLatencyMs,string(reasons))
 	if err != nil { serverError(w, err); return }
 
 	_, err = tx.ExecContext(r.Context(), `UPDATE channels SET last_test_at=now(), updated_at=now() WHERE id=$1`, c.ID)
