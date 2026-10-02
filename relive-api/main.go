@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"net/http"
@@ -103,6 +104,9 @@ func main() {
 	mux.HandleFunc("POST /api/v1/channels/{id}/test/start", a.startConnectionTest)
 	mux.HandleFunc("POST /api/v1/channels/{id}/test/cancel", a.cancelConnectionTest)
 	mux.HandleFunc("GET /api/v1/channels/{id}/recommendation", a.latestRecommendation)
+	mux.HandleFunc("GET /api/v1/destination-platforms", a.destinationPlatforms)
+	mux.HandleFunc("GET /api/v1/destinations", a.listDestinations)
+	mux.HandleFunc("POST /api/v1/destinations", a.createDestination)
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -199,6 +203,23 @@ ALTER TABLE network_tests
 	ADD COLUMN IF NOT EXISTS receive_bitrate_mbps DOUBLE PRECISION NOT NULL DEFAULT 0;
 ALTER TABLE network_tests
 	ADD COLUMN IF NOT EXISTS sample_count INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS destinations (
+	id BIGSERIAL PRIMARY KEY,
+	owner_id TEXT NOT NULL,
+	name TEXT NOT NULL,
+	platform TEXT NOT NULL,
+	key_source TEXT NOT NULL DEFAULT 'manual_key',
+	server_url TEXT NOT NULL,
+	stream_key TEXT NOT NULL DEFAULT '',
+	generator_ref TEXT NOT NULL DEFAULT '',
+	enabled BOOLEAN NOT NULL DEFAULT true,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_destinations_owner ON destinations(owner_id);
+CREATE INDEX IF NOT EXISTS idx_destinations_platform ON destinations(platform);
 `
 	_, err := db.ExecContext(ctx, schema)
 	return err
