@@ -2,7 +2,7 @@
   const $ = (id) => document.getElementById(id);
   const state = {
     channels: [], channel: null, destinations: [], samples: [], incidents: [],
-    timer: null, historyMinutes: 15
+    timer: null, historyMinutes: 15, lastLiveBytes: null, lastLiveAt: null
   };
 
   function esc(v){return String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -40,6 +40,8 @@
     state.samples=[];
     state.destinations=[];
     state.incidents=[];
+    state.lastLiveBytes=null;
+    state.lastLiveAt=null;
     if(!state.channel)return;
     renderChannel(state.channel);
     await loadHistory();
@@ -129,13 +131,26 @@
 
     if(live){
       const now=Date.now();
+      let receive=last?last.receive:0;
+      const bytes=Number(t.recv_unique_bytes);
+      if(Number.isFinite(bytes) && state.lastLiveBytes!==null && state.lastLiveAt!==null && bytes>=state.lastLiveBytes){
+        const seconds=(now-state.lastLiveAt)/1000;
+        if(seconds>0) receive=((bytes-state.lastLiveBytes)*8/seconds/1000000);
+      }
+      if(Number.isFinite(bytes)){
+        state.lastLiveBytes=bytes;
+        state.lastLiveAt=now;
+      }
       const duplicate=last && Math.abs(last.at-now)<1200;
       if(!duplicate){
-        state.samples.push({at:now,rtt:Number(t.rtt_ms)||0,receive:last?last.receive:0,bandwidth:Number(t.bandwidth_mbit)||0});
+        state.samples.push({at:now,rtt:Number(t.rtt_ms)||0,receive,bandwidth:Number(t.bandwidth_mbit)||0});
       }
       const cutoff=now-state.historyMinutes*60*1000;
       state.samples=state.samples.filter(x=>x.at>=cutoff);
       renderCharts();
+    } else {
+      state.lastLiveBytes=null;
+      state.lastLiveAt=null;
     }
   }
 
