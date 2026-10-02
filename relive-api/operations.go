@@ -38,6 +38,21 @@ type destinationRuntime struct {
 	AudioStatus        string     `json:"audio_status"`
 	AudioPPS           float64    `json:"audio_pps"`
 	ReconnectCount     int        `json:"reconnect_count"`
+	QualityStatus      string     `json:"quality_status"`
+	QualityReasons     []string   `json:"quality_reasons"`
+	SourceVideoCodec   string     `json:"source_video_codec"`
+	OutputVideoCodec   string     `json:"output_video_codec"`
+	SourceResolution   string     `json:"source_resolution"`
+	OutputResolution   string     `json:"output_resolution"`
+	SourceFPS          float64    `json:"source_fps"`
+	OutputFPS          float64    `json:"output_fps"`
+	SourceVideoKbps    float64    `json:"source_video_bitrate_kbps"`
+	SourceAudioCodec   string     `json:"source_audio_codec"`
+	OutputAudioCodec   string     `json:"output_audio_codec"`
+	SourceAudioHz      uint64     `json:"source_audio_hz"`
+	OutputAudioHz      uint64     `json:"output_audio_hz"`
+	SourceAudioChannels uint64    `json:"source_audio_channels"`
+	OutputAudioChannels uint64    `json:"output_audio_channels"`
 	LastError          string     `json:"last_error,omitempty"`
 	LastStatusAt       *time.Time `json:"last_status_at,omitempty"`
 }
@@ -107,7 +122,10 @@ func (a *app) listDestinationRuntime(w http.ResponseWriter, r *http.Request) {
 	owner := strings.TrimSpace(r.URL.Query().Get("owner_id"))
 	q := `SELECT id,channel_id,owner_id,name,platform,enabled,desired_state,status,core_process_id,
 		output_bitrate_mbps,video_bitrate_kbps,audio_bitrate_kbps,fps,audio_status,audio_pps,
-		reconnect_count,last_error,last_status_at FROM destinations`
+		reconnect_count,quality_status,quality_reasons,source_video_codec,output_video_codec,
+		source_resolution,output_resolution,source_fps,output_fps,source_video_bitrate_kbps,
+		source_audio_codec,output_audio_codec,source_audio_hz,output_audio_hz,
+		source_audio_channels,output_audio_channels,last_error,last_status_at FROM destinations`
 	args := []any{}
 	if channelID != "" {
 		id, err := strconv.ParseInt(channelID,10,64)
@@ -135,7 +153,11 @@ func (a *app) listDestinationRuntime(w http.ResponseWriter, r *http.Request) {
 		var d destinationRuntime
 		if err := rows.Scan(&d.ID,&d.ChannelID,&d.OwnerID,&d.Name,&d.Platform,&d.Enabled,&d.DesiredState,
 			&d.Status,&d.CoreProcessID,&d.OutputBitrateMbps,&d.VideoBitrateKbps,&d.AudioBitrateKbps,
-			&d.FPS,&d.AudioStatus,&d.AudioPPS,&d.ReconnectCount,&d.LastError,&d.LastStatusAt); err != nil {
+			&d.FPS,&d.AudioStatus,&d.AudioPPS,&d.ReconnectCount,&d.QualityStatus,&d.QualityReasons,
+			&d.SourceVideoCodec,&d.OutputVideoCodec,&d.SourceResolution,&d.OutputResolution,
+			&d.SourceFPS,&d.OutputFPS,&d.SourceVideoKbps,&d.SourceAudioCodec,&d.OutputAudioCodec,
+			&d.SourceAudioHz,&d.OutputAudioHz,&d.SourceAudioChannels,&d.OutputAudioChannels,
+			&d.LastError,&d.LastStatusAt); err != nil {
 			serverError(w, err)
 			return
 		}
