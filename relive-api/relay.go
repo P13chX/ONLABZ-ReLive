@@ -314,9 +314,13 @@ type incident struct {
 }
 
 func (a *app) recordIncident(ctx context.Context, channelID,destinationID int64,severity,code,message string) error {
+	var destination any
+	if destinationID > 0 {
+		destination = destinationID
+	}
 	_,err:=a.db.ExecContext(ctx,`
 		INSERT INTO incident_events(channel_id,destination_id,severity,code,message)
-		VALUES($1,$2,$3,$4,$5)`,channelID,destinationID,severity,code,message)
+		VALUES($1,$2,$3,$4,$5)`,channelID,destination,severity,code,message)
 	return err
 }
 
