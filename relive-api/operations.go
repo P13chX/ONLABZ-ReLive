@@ -152,15 +152,21 @@ func (a *app) listDestinationRuntime(w http.ResponseWriter, r *http.Request) {
 	out := []destinationRuntime{}
 	for rows.Next() {
 		var d destinationRuntime
+		var qualityReasons []byte
 		if err := rows.Scan(&d.ID,&d.ChannelID,&d.OwnerID,&d.Name,&d.Platform,&d.Enabled,&d.DesiredState,
 			&d.Status,&d.CoreProcessID,&d.OutputBitrateMbps,&d.VideoBitrateKbps,&d.AudioBitrateKbps,
-			&d.FPS,&d.AudioStatus,&d.AudioPPS,&d.ReconnectCount,&d.QualityStatus,&d.QualityReasons,
+			&d.FPS,&d.AudioStatus,&d.AudioPPS,&d.ReconnectCount,&d.QualityStatus,&qualityReasons,
 			&d.SourceVideoCodec,&d.OutputVideoCodec,&d.SourceResolution,&d.OutputResolution,
 			&d.SourceFPS,&d.OutputFPS,&d.SourceVideoKbps,&d.SourceAudioCodec,&d.OutputAudioCodec,
 			&d.SourceAudioHz,&d.OutputAudioHz,&d.SourceAudioChannels,&d.OutputAudioChannels,
 			&d.LastError,&d.LastStatusAt); err != nil {
 			serverError(w, err)
 			return
+		}
+		if len(qualityReasons)==0 {
+			d.QualityReasons=json.RawMessage("[]")
+		} else {
+			d.QualityReasons=json.RawMessage(qualityReasons)
 		}
 		out = append(out,d)
 	}
