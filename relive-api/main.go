@@ -245,6 +245,21 @@ ALTER TABLE destinations ADD COLUMN IF NOT EXISTS audio_bitrate_kbps DOUBLE PREC
 ALTER TABLE destinations ADD COLUMN IF NOT EXISTS fps DOUBLE PRECISION NOT NULL DEFAULT 0;
 ALTER TABLE destinations ADD COLUMN IF NOT EXISTS audio_status TEXT NOT NULL DEFAULT 'unknown';
 ALTER TABLE destinations ADD COLUMN IF NOT EXISTS audio_pps DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS quality_status TEXT NOT NULL DEFAULT 'unknown';
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS quality_reasons JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS source_video_codec TEXT NOT NULL DEFAULT '';
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS output_video_codec TEXT NOT NULL DEFAULT '';
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS source_resolution TEXT NOT NULL DEFAULT '';
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS output_resolution TEXT NOT NULL DEFAULT '';
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS source_fps DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS output_fps DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS source_video_bitrate_kbps DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS source_audio_codec TEXT NOT NULL DEFAULT '';
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS output_audio_codec TEXT NOT NULL DEFAULT '';
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS source_audio_hz BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS output_audio_hz BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS source_audio_channels BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS output_audio_channels BIGINT NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_destinations_channel ON destinations(channel_id);
 
@@ -398,7 +413,7 @@ func (a *app) createTest(w http.ResponseWriter, r *http.Request) {
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
 		c.ID,in.RTTAvgMs,in.RTTMaxMs,in.PacketLossPct,in.RetransmitPct,in.BitrateVariancePct,
 		in.AudioDropCount,in.ReconnectCount,rec.Result,rec.NetworkHealth,
-		rec.RecommendedVideoKbps,rec.RecommendedSRTLatencyMs,reasons)
+		rec.RecommendedVideoKbps,rec.RecommendedSRTLatencyMs,string(reasons))
 	if err != nil { serverError(w, err); return }
 
 	_, err = tx.ExecContext(r.Context(), `UPDATE channels SET last_test_at=now(), updated_at=now() WHERE id=$1`, c.ID)
@@ -565,7 +580,7 @@ func (a *app) finishConnectionTest(c channel, samples []telemetrySample, reconne
 		c.ID, metrics.RTTAvgMs, metrics.RTTMaxMs, metrics.PacketLossPct,
 		metrics.RetransmitPct, metrics.BitrateVariancePct, metrics.ReconnectCount,
 		rec.Result, rec.NetworkHealth, rec.RecommendedVideoKbps,
-		rec.RecommendedSRTLatencyMs, reasons, metrics.ReceiveBitrateMbps,
+		rec.RecommendedSRTLatencyMs, string(reasons), metrics.ReceiveBitrateMbps,
 		metrics.SampleCount,
 	)
 	if err != nil {

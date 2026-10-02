@@ -247,3 +247,20 @@ select:focus-visible,.btn:focus-visible{outline:2px solid var(--cyan);outline-of
   .channel-picker,select{width:100%}
   .counter-grid{grid-template-columns:1fr 1fr}
 }
+
+.integrity-cell{display:grid;gap:4px;min-width:210px}
+.integrity-badge{
+  display:inline-flex;width:max-content;align-items:center;
+  padding:3px 7px;border:1px solid var(--line);
+  font:800 9px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  letter-spacing:.08em;text-transform:uppercase
+}
+.integrity-badge.preserved{
+  color:var(--cyan);border-color:rgba(104,234,215,.42);
+  background:rgba(104,234,215,.055)
+}
+.integrity-badge.changed{
+  color:#ff685f;border-color:rgba(255,45,32,.55);
+  background:rgba(255,45,32,.09)
+}
+.integrity-badge.unknown{color:var(--muted)}

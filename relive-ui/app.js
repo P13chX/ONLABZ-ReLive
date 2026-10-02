@@ -179,6 +179,21 @@
     return '<div class="audio-cell"><i class="audio-dot '+esc(s)+'"></i><span>'+esc(label)+'</span></div>';
   }
 
+  function integrityBadge(d){
+    const s=(d.quality_status||'unknown').toLowerCase();
+    let label='UNKNOWN', cls='unknown';
+    if(s==='preserved'){label='PRESERVED';cls='preserved';}
+    if(s==='changed'){label='QUALITY CHANGED';cls='changed';}
+    const reasons=Array.isArray(d.quality_reasons)?d.quality_reasons:[];
+    const detail=[
+      (d.source_video_codec||'—')+' '+(d.source_resolution||'—')+' '+n(d.source_fps,1)+'fps',
+      '→',
+      (d.output_video_codec||'—')+' '+(d.output_resolution||'—')+' '+n(d.output_fps,1)+'fps'
+    ].join(' ');
+    const title=(reasons.length?reasons.join(', ')+' · ':'')+detail;
+    return '<div class="integrity-cell" title="'+esc(title)+'"><span class="integrity-badge '+cls+'">'+esc(label)+'</span><div class="subline">'+esc(detail)+'</div></div>';
+  }
+
   function controlButtons(d){
     const running=d.desired_state==='running';
     if(running){
@@ -189,7 +204,7 @@
 
   function updateDestinations(list){
     if(!list.length){
-      $('destinationRows').innerHTML='<tr><td colspan="9" class="empty">No destinations configured for this channel</td></tr>';
+      $('destinationRows').innerHTML='<tr><td colspan="10" class="empty">No destinations configured for this channel</td></tr>';
       updateIncidentPanel();
       return;
     }
@@ -198,6 +213,7 @@
       return '<tr>'+
         '<td><strong>'+esc(d.name)+'</strong><div class="subline">'+esc((d.platform||'').toUpperCase())+'</div></td>'+
         '<td><div class="status-cell"><i class="dot '+s+'"></i>'+esc((d.status||'unknown').toUpperCase())+'</div></td>'+
+        '<td>'+integrityBadge(d)+'</td>'+
         '<td>'+n(d.video_bitrate_kbps,0)+' kbps</td>'+
         '<td>'+audioBadge(d)+'</td>'+
         '<td>'+n(d.fps,1)+'</td>'+
@@ -240,12 +256,12 @@
   }
 
   function updateIncidentPanel(){
-    const badDests=state.destinations.filter(d=>['failed','degraded','reconnecting'].includes(statusClass(d.status)) || d.audio_status==='missing');
+    const badDests=state.destinations.filter(d=>['failed','degraded','reconnecting'].includes(statusClass(d.status)) || d.audio_status==='missing' || d.quality_status==='changed');
     const panel=$('incidentPanel');
     if(!badDests.length){panel.classList.add('hidden');return;}
     panel.classList.remove('hidden');
     $('incidentCount').textContent=badDests.length;
-    $('incidentText').textContent=badDests.map(d=>d.name+' '+(d.audio_status==='missing'?'AUDIO MISSING':String(d.status||'unknown').toUpperCase())).join(' · ');
+    $('incidentText').textContent=badDests.map(d=>d.name+' '+(d.quality_status==='changed'?'QUALITY CHANGED':d.audio_status==='missing'?'AUDIO MISSING':String(d.status||'unknown').toUpperCase())).join(' · ');
   }
 
   function showTransientProblem(message){

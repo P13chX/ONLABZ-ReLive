@@ -134,7 +134,7 @@ func (c *telemetryCollector) collect(ctx context.Context) {
 		c.mu.Unlock()
 
 		if hasPrev {
-			c.observeNetworkHealth(ctx,x.id,stats.RTTMs,stats.MbpsBandwidth,receiveMbps,retransPct,dropDelta)
+			c.observeNetworkHealth(ctx,x.id,stats.RTTMs,stats.BandwidthMbit,receiveMbps,retransPct,dropDelta)
 		}
 
 		_,err:=c.app.db.ExecContext(ctx,`
