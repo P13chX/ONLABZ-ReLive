@@ -29,6 +29,9 @@ Active development is merged progressively into branch `2.x`; feature branches a
 
 ### Implemented
 
+- Source-to-destination bitstream integrity monitoring (`PRESERVED / QUALITY CHANGED`)
+- Critical quality-change incidents for codec/resolution/FPS/audio-format drift
+- Mandatory local pre-merge Go checks via `scripts/premerge-check.sh`
 - Restreamer 2.x / datarhei Core retained as the media-engine foundation
 - ReLive Control API in Go
 - PostgreSQL control-plane storage
@@ -418,7 +421,7 @@ A Facebook reconnect must not restart:
 
 This isolation is implemented with one datarhei Core / FFmpeg process per destination. Each worker subscribes to the already-published internal SRT resource, so multiple outputs do not open multiple contribution connections back to the customer's OBS encoder.
 
-See [docs/RELAY_WORKER.md](docs/RELAY_WORKER.md).
+See [docs/RELAY_WORKER.md](docs/RELAY_WORKER.md) and [docs/QUALITY_INTEGRITY.md](docs/QUALITY_INTEGRITY.md).
 
 ---
 
@@ -459,6 +462,7 @@ The console polls operational state every 2 seconds and shows:
 - persistent RTT and receive-bitrate history (5 min / 15 min / 1 hour)
 - known-good contribution profile and recommendation
 - destination LIVE / DEGRADED / RECONNECTING / FAILED state
+- destination bitstream integrity: PRESERVED / QUALITY CHANGED
 - per-destination video bitrate
 - per-destination audio bitrate and audio PPS
 - FPS
