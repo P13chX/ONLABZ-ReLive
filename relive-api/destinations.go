@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -96,7 +97,16 @@ func (a *app) createDestination(w http.ResponseWriter, r *http.Request) {
 	d.Enabled = true
 
 	switch d.Platform {
-	case "youtube", "facebook", "custom_rtmp", "custom_srt":
+	case "youtube", "facebook":
+		if d.KeySource != "manual_key" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "selected platform supports manual_key only"})
+			return
+		}
+		if d.StreamKey == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "stream_key is required for this platform"})
+			return
+		}
+	case "custom_rtmp", "custom_srt":
 		if d.KeySource != "manual_key" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "selected platform supports manual_key only"})
 			return
@@ -131,6 +141,23 @@ func (a *app) createDestination(w http.ResponseWriter, r *http.Request) {
 	if d.ServerURL == "" && d.KeySource == "manual_key" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "server_url is required"})
 		return
+	}
+	if d.ServerURL != "" {
+		u, err := url.Parse(d.ServerURL)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid destination server_url"})
+			return
+		}
+		scheme := strings.ToLower(u.Scheme)
+		if d.Platform == "custom_srt" {
+			if scheme != "srt" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "custom_srt requires srt:// server_url"})
+				return
+			}
+		} else if scheme != "rtmp" && scheme != "rtmps" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "RTMP destinations require rtmp:// or rtmps:// server_url"})
+			return
+		}
 	}
 
 	err := a.db.QueryRowContext(r.Context(), `
