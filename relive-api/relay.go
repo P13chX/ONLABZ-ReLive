@@ -174,7 +174,9 @@ func (m *relayManager) reconcileDestination(ctx context.Context, d relayDestinat
 	case "running":
 		if state.Reconnect > 0 {
 			status = "reconnecting"
-			reconnectCount++
+			if d.Status != "reconnecting" {
+				reconnectCount++
+			}
 		} else if audioStatus == "missing" {
 			status = "degraded"
 			lastError = "audio input detected but no audio packets are reaching output"
