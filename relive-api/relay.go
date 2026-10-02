@@ -19,6 +19,8 @@ type relayManager struct {
 	srtHost  string
 	srtPort  int
 	srtToken string
+	srtPassphrase string
+	srtPBKeyLen int
 }
 
 type relayDestination struct {
@@ -50,12 +52,18 @@ func newRelayManager(a *app) *relayManager {
 	if err != nil || port < 1 || port > 65535 {
 		port = 6000
 	}
+	pbkeylen, err := strconv.Atoi(env("RELIVE_INTERNAL_SRT_PBKEYLEN", "16"))
+	if err != nil || (pbkeylen != 16 && pbkeylen != 24 && pbkeylen != 32) {
+		pbkeylen = 16
+	}
 	return &relayManager{
-		app:      a,
-		interval: envDuration("RELIVE_RELAY_POLL_INTERVAL", 2*time.Second),
-		srtHost:  env("RELIVE_INTERNAL_SRT_HOST", "restreamer"),
-		srtPort:  port,
-		srtToken: env("RELIVE_INTERNAL_SRT_TOKEN", ""),
+		app:           a,
+		interval:      envDuration("RELIVE_RELAY_POLL_INTERVAL", 2*time.Second),
+		srtHost:       env("RELIVE_INTERNAL_SRT_HOST", "restreamer"),
+		srtPort:       port,
+		srtToken:      env("RELIVE_INTERNAL_SRT_TOKEN", ""),
+		srtPassphrase: env("RELIVE_INTERNAL_SRT_PASSPHRASE", ""),
+		srtPBKeyLen:   pbkeylen,
 	}
 }
 
@@ -127,7 +135,7 @@ func (m *relayManager) reconcileDestination(ctx context.Context, d relayDestinat
 			return m.updateRuntime(ctx,d,"failed","",0,0,0,0,"unknown",d.ReconnectCount,"destination server URL is empty")
 		}
 
-		source := internalSRTSourceURL(m.srtHost,m.srtPort,d.StreamID,m.srtToken)
+		source := internalSRTSourceURL(m.srtHost,m.srtPort,d.StreamID,m.srtToken,m.srtPassphrase,m.srtPBKeyLen)
 		output := destinationOutputURL(d.ServerURL,d.StreamKey)
 		cfg := coreProcessConfig{
 			Type:"ffmpeg",
