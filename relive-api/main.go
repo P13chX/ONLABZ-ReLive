@@ -18,7 +18,11 @@ import (
 )
 
 type app struct {
-	db *sql.DB
+	db        *sql.DB
+	core      *coreClient
+	tests     *testManager
+	testFor   time.Duration
+	sampleFor time.Duration
 }
 
 type channel struct {
@@ -83,13 +87,21 @@ func main() {
 		log.Fatal(err)
 	}
 
-	a := &app{db: db}
+	a := &app{
+		db:        db,
+		core:      newCoreClient(),
+		tests:     newTestManager(),
+		testFor:   envDuration("RELIVE_TEST_DURATION", 30*time.Second),
+		sampleFor: envDuration("RELIVE_SAMPLE_INTERVAL", 2*time.Second),
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", a.health)
 	mux.HandleFunc("GET /api/v1/channels", a.listChannels)
 	mux.HandleFunc("POST /api/v1/channels", a.createChannel)
 	mux.HandleFunc("GET /api/v1/channels/{id}", a.getChannel)
 	mux.HandleFunc("POST /api/v1/channels/{id}/tests", a.createTest)
+	mux.HandleFunc("POST /api/v1/channels/{id}/test/start", a.startConnectionTest)
+	mux.HandleFunc("POST /api/v1/channels/{id}/test/cancel", a.cancelConnectionTest)
 	mux.HandleFunc("GET /api/v1/channels/{id}/recommendation", a.latestRecommendation)
 
 	srv := &http.Server{
@@ -108,6 +120,19 @@ func env(k, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func envDuration(k string, fallback time.Duration) time.Duration {
+	raw := os.Getenv(k)
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		log.Printf("invalid %s=%q; using %s", k, raw, fallback)
+		return fallback
+	}
+	return d
 }
 
 func waitForDB(ctx context.Context, db *sql.DB) error {
@@ -169,6 +194,11 @@ CREATE TABLE IF NOT EXISTS network_tests (
 
 CREATE INDEX IF NOT EXISTS idx_network_tests_channel_created
 ON network_tests(channel_id, created_at DESC);
+
+ALTER TABLE network_tests
+	ADD COLUMN IF NOT EXISTS receive_bitrate_mbps DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE network_tests
+	ADD COLUMN IF NOT EXISTS sample_count INTEGER NOT NULL DEFAULT 0;
 `
 	_, err := db.ExecContext(ctx, schema)
 	return err
@@ -300,6 +330,191 @@ func (a *app) createTest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, rec)
 }
 
+
+func (a *app) startConnectionTest(w http.ResponseWriter, r *http.Request) {
+	c, err := a.channelByID(r.Context(), r.PathValue("id"))
+	if errors.Is(err, sql.ErrNoRows) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "channel not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid channel id"})
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	if !a.tests.begin(c.ID, cancel) {
+		cancel()
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "connection test already running"})
+		return
+	}
+
+	if _, err := a.db.ExecContext(r.Context(),
+		`UPDATE channels SET status='testing', updated_at=now() WHERE id=$1`, c.ID); err != nil {
+		a.tests.done(c.ID)
+		cancel()
+		serverError(w, err)
+		return
+	}
+
+	go a.runConnectionTest(ctx, c)
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"channel_id":       c.ID,
+		"status":           "testing",
+		"duration_seconds": int(a.testFor.Seconds()),
+		"sample_interval":  a.sampleFor.String(),
+	})
+}
+
+func (a *app) cancelConnectionTest(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid channel id"})
+		return
+	}
+	if !a.tests.cancel(id) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no connection test running"})
+		return
+	}
+	_, _ = a.db.ExecContext(r.Context(),
+		`UPDATE channels SET status='offline', updated_at=now() WHERE id=$1`, id)
+	writeJSON(w, http.StatusOK, map[string]any{"channel_id": id, "status": "offline"})
+}
+
+func (a *app) runConnectionTest(ctx context.Context, c channel) {
+	defer a.tests.done(c.ID)
+
+	deadline := time.NewTimer(a.testFor)
+	defer deadline.Stop()
+	ticker := time.NewTicker(a.sampleFor)
+	defer ticker.Stop()
+
+	samples := make([]telemetrySample, 0, int(a.testFor/a.sampleFor)+1)
+	seen := false
+	missingAfterSeen := false
+	reconnects := 0
+
+	sample := func() {
+		pollCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		channels, err := a.core.srt(pollCtx)
+		if err != nil {
+			log.Printf("channel %d telemetry poll failed: %v", c.ID, err)
+			if seen {
+				missingAfterSeen = true
+			}
+			return
+		}
+		stats, ok := findPublisher(channels, c.StreamID)
+		if !ok {
+			if seen {
+				missingAfterSeen = true
+			}
+			return
+		}
+		if missingAfterSeen {
+			reconnects++
+			missingAfterSeen = false
+		}
+		seen = true
+		samples = append(samples, telemetrySample{at: time.Now(), stats: stats})
+	}
+
+	sample()
+
+	for {
+		select {
+		case <-ctx.Done():
+			_, _ = a.db.ExecContext(context.Background(),
+				`UPDATE channels SET status='offline', updated_at=now() WHERE id=$1`, c.ID)
+			return
+		case <-ticker.C:
+			sample()
+		case <-deadline.C:
+			sample()
+			a.finishConnectionTest(c, samples, reconnects)
+			return
+		}
+	}
+}
+
+func (a *app) finishConnectionTest(c channel, samples []telemetrySample, reconnects int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	metrics, err := summarizeSamples(samples, reconnects)
+	if err != nil {
+		log.Printf("channel %d test failed: %v", c.ID, err)
+		_, _ = a.db.ExecContext(ctx,
+			`UPDATE channels SET status='degraded', last_test_at=now(), updated_at=now() WHERE id=$1`, c.ID)
+		return
+	}
+
+	in := testInput{
+		RTTAvgMs:           metrics.RTTAvgMs,
+		RTTMaxMs:           metrics.RTTMaxMs,
+		PacketLossPct:      metrics.PacketLossPct,
+		RetransmitPct:      metrics.RetransmitPct,
+		BitrateVariancePct: metrics.BitrateVariancePct,
+		ReconnectCount:     metrics.ReconnectCount,
+	}
+	rec := recommend(c, in)
+	reasons, _ := json.Marshal(rec.Reasons)
+
+	status := "ready"
+	switch rec.Result {
+	case "REDUCE_BITRATE", "SAFE_PROFILE", "REVIEW":
+		status = "degraded"
+	}
+
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		log.Printf("channel %d test persist failed: %v", c.ID, err)
+		return
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO network_tests(
+			channel_id,rtt_avg_ms,rtt_max_ms,packet_loss_pct,retransmit_pct,
+			bitrate_variance_pct,audio_drop_count,reconnect_count,result,network_health,
+			recommended_video_bitrate_kbps,recommended_srt_latency_ms,reasons,
+			receive_bitrate_mbps,sample_count
+		)
+		VALUES($1,$2,$3,$4,$5,$6,0,$7,$8,$9,$10,$11,$12,$13,$14)`,
+		c.ID, metrics.RTTAvgMs, metrics.RTTMaxMs, metrics.PacketLossPct,
+		metrics.RetransmitPct, metrics.BitrateVariancePct, metrics.ReconnectCount,
+		rec.Result, rec.NetworkHealth, rec.RecommendedVideoKbps,
+		rec.RecommendedSRTLatencyMs, reasons, metrics.ReceiveBitrateMbps,
+		metrics.SampleCount,
+	)
+	if err != nil {
+		log.Printf("channel %d test insert failed: %v", c.ID, err)
+		return
+	}
+
+	_, err = tx.ExecContext(ctx,
+		`UPDATE channels SET status=$1, last_test_at=now(), updated_at=now() WHERE id=$2`,
+		status, c.ID)
+	if err != nil {
+		log.Printf("channel %d status update failed: %v", c.ID, err)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("channel %d test commit failed: %v", c.ID, err)
+		return
+	}
+
+	log.Printf(
+		"channel %d test complete: status=%s result=%s rtt=%.2fms loss=%.2f%% retrans=%.2f%% receive=%.2fMbps",
+		c.ID, status, rec.Result, metrics.RTTAvgMs, metrics.PacketLossPct,
+		metrics.RetransmitPct, metrics.ReceiveBitrateMbps,
+	)
+}
+
 func (a *app) latestRecommendation(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -396,7 +611,7 @@ func maxInt(a,b int) int { if a>b { return a }; return b }
 
 func decodeJSON(r *http.Request, dst any) error {
 	defer r.Body.Close()
-	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<20))
+	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
 	dec.DisallowUnknownFields()
 	return dec.Decode(dst)
 }
