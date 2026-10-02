@@ -1,0 +1,34 @@
+name: ReLive API CI
+
+on:
+  push:
+    branches:
+      - relive-v0.1-mvp
+  pull_request:
+    paths:
+      - "relive-api/**"
+      - ".github/workflows/relive-api.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: relive-api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache-dependency-path: relive-api/go.mod
+      - name: Format check
+        run: test -z "$(gofmt -l .)"
+      - name: Download modules
+        run: go mod download
+      - name: Test
+        run: go test ./...
+      - name: Build
+        run: go build ./...
