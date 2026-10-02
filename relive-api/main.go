@@ -580,7 +580,7 @@ func (a *app) finishConnectionTest(c channel, samples []telemetrySample, reconne
 		c.ID, metrics.RTTAvgMs, metrics.RTTMaxMs, metrics.PacketLossPct,
 		metrics.RetransmitPct, metrics.BitrateVariancePct, metrics.ReconnectCount,
 		rec.Result, rec.NetworkHealth, rec.RecommendedVideoKbps,
-		rec.RecommendedSRTLatencyMs, reasons, metrics.ReceiveBitrateMbps,
+		rec.RecommendedSRTLatencyMs, string(reasons), metrics.ReceiveBitrateMbps,
 		metrics.SampleCount,
 	)
 	if err != nil {
