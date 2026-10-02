@@ -240,7 +240,7 @@ func (m *relayManager) updateRuntime(ctx context.Context, d relayDestination, st
 			source_audio_channels=$24,output_audio_channels=$25,last_status_at=now(),updated_at=now()
 		WHERE id=$26`,
 		status,processID,outputMbps,videoKbps,audioKbps,fps,audioStatus,audioPPS,reconnects,lastError,
-		integrity.Status,reasonsJSON,integrity.SourceVideoCodec,integrity.OutputVideoCodec,
+		integrity.Status,string(reasonsJSON),integrity.SourceVideoCodec,integrity.OutputVideoCodec,
 		integrity.SourceResolution,integrity.OutputResolution,integrity.SourceFPS,integrity.OutputFPS,
 		integrity.SourceVideoBitrateKbps,integrity.SourceAudioCodec,integrity.OutputAudioCodec,
 		integrity.SourceAudioHz,integrity.OutputAudioHz,integrity.SourceAudioChannels,integrity.OutputAudioChannels,d.ID)
