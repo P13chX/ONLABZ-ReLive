@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -35,10 +36,16 @@ type coreProgressIO struct {
 	ID       string  `json:"id"`
 	Type     string  `json:"type"`
 	Codec    string  `json:"codec"`
+	Coder    string  `json:"coder"`
+	Format   string  `json:"format"`
+	Pixfmt   string  `json:"pix_fmt"`
+	Width    uint64  `json:"width"`
+	Height   uint64  `json:"height"`
 	FPS      float64 `json:"fps"`
 	PPS      float64 `json:"pps"`
 	Bitrate  float64 `json:"bitrate_kbit"`
 	Sampling uint64  `json:"sampling_hz"`
+	Layout   string  `json:"layout"`
 	Channels uint64  `json:"channels"`
 	Packet   uint64  `json:"packet"`
 }
@@ -187,4 +194,110 @@ func mediaFromState(s coreProcessState) (videoKbps, audioKbps, fps, audioPPS flo
 		}
 	}
 	return
+}
+
+
+type bitstreamIntegrity struct {
+	Status                 string
+	SourceVideoCodec       string
+	OutputVideoCodec       string
+	SourceResolution       string
+	OutputResolution       string
+	SourceFPS              float64
+	OutputFPS              float64
+	SourceVideoBitrateKbps float64
+	OutputVideoBitrateKbps float64
+	SourceAudioCodec       string
+	OutputAudioCodec       string
+	SourceAudioKbps        float64
+	OutputAudioKbps        float64
+	SourceAudioHz          uint64
+	OutputAudioHz          uint64
+	SourceAudioChannels    uint64
+	OutputAudioChannels    uint64
+	Reasons                []string
+}
+
+func mediaPair(streams []coreProgressIO, mediaType string) (coreProgressIO, bool) {
+	for _, s := range streams {
+		if strings.EqualFold(s.Type, mediaType) {
+			return s, true
+		}
+	}
+	return coreProgressIO{}, false
+}
+
+func evaluateBitstreamIntegrity(s coreProcessState) bitstreamIntegrity {
+	q := bitstreamIntegrity{Status: "unknown", Reasons: []string{}}
+	inV, hasInV := mediaPair(s.Progress.Input, "video")
+	outV, hasOutV := mediaPair(s.Progress.Output, "video")
+	inA, hasInA := mediaPair(s.Progress.Input, "audio")
+	outA, hasOutA := mediaPair(s.Progress.Output, "audio")
+
+	if hasInV {
+		q.SourceVideoCodec = inV.Codec
+		q.SourceResolution = fmt.Sprintf("%dx%d", inV.Width, inV.Height)
+		q.SourceFPS = inV.FPS
+		q.SourceVideoBitrateKbps = inV.Bitrate
+	}
+	if hasOutV {
+		q.OutputVideoCodec = outV.Codec
+		q.OutputResolution = fmt.Sprintf("%dx%d", outV.Width, outV.Height)
+		q.OutputFPS = outV.FPS
+		q.OutputVideoBitrateKbps = outV.Bitrate
+	}
+	if hasInA {
+		q.SourceAudioCodec = inA.Codec
+		q.SourceAudioKbps = inA.Bitrate
+		q.SourceAudioHz = inA.Sampling
+		q.SourceAudioChannels = inA.Channels
+	}
+	if hasOutA {
+		q.OutputAudioCodec = outA.Codec
+		q.OutputAudioKbps = outA.Bitrate
+		q.OutputAudioHz = outA.Sampling
+		q.OutputAudioChannels = outA.Channels
+	}
+
+	if !hasInV || !hasOutV {
+		return q
+	}
+
+	changed := false
+	if !strings.EqualFold(inV.Codec, outV.Codec) {
+		changed = true
+		q.Reasons = append(q.Reasons, "video codec changed")
+	}
+	if inV.Width != outV.Width || inV.Height != outV.Height {
+		changed = true
+		q.Reasons = append(q.Reasons, "resolution changed")
+	}
+	if inV.FPS > 0 && outV.FPS > 0 && math.Abs(inV.FPS-outV.FPS) > 0.5 {
+		changed = true
+		q.Reasons = append(q.Reasons, "frame rate changed")
+	}
+	if hasInA != hasOutA {
+		changed = true
+		q.Reasons = append(q.Reasons, "audio stream presence changed")
+	}
+	if hasInA && hasOutA {
+		if !strings.EqualFold(inA.Codec, outA.Codec) {
+			changed = true
+			q.Reasons = append(q.Reasons, "audio codec changed")
+		}
+		if inA.Sampling > 0 && outA.Sampling > 0 && inA.Sampling != outA.Sampling {
+			changed = true
+			q.Reasons = append(q.Reasons, "audio sample rate changed")
+		}
+		if inA.Channels > 0 && outA.Channels > 0 && inA.Channels != outA.Channels {
+			changed = true
+			q.Reasons = append(q.Reasons, "audio channel count changed")
+		}
+	}
+	if changed {
+		q.Status = "changed"
+	} else {
+		q.Status = "preserved"
+	}
+	return q
 }
