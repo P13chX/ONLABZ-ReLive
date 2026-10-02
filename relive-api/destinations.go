@@ -91,6 +91,9 @@ func (a *app) createDestination(w http.ResponseWriter, r *http.Request) {
 	if d.KeySource == "" {
 		d.KeySource = "manual_key"
 	}
+	// Destinations are operational by default. Start/stop is controlled separately
+	// through desired_state so enabled can remain an administrative switch.
+	d.Enabled = true
 
 	switch d.Platform {
 	case "youtube", "facebook", "custom_rtmp", "custom_srt":
@@ -148,7 +151,7 @@ func (a *app) createDestination(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) listDestinations(w http.ResponseWriter, r *http.Request) {
 	owner := strings.TrimSpace(r.URL.Query().Get("owner_id"))
-	q := `SELECT id,channel_id,owner_id,name,platform,key_source,server_url,generator_ref,enabled,desired_state,created_at,updated_at FROM destinations`
+	q := `SELECT id,COALESCE(channel_id,0),owner_id,name,platform,key_source,server_url,generator_ref,enabled,desired_state,created_at,updated_at FROM destinations`
 	args := []any{}
 	if owner != "" {
 		q += " WHERE owner_id=$1"
