@@ -107,6 +107,9 @@ func main() {
 	mux.HandleFunc("GET /api/v1/destination-platforms", a.destinationPlatforms)
 	mux.HandleFunc("GET /api/v1/destinations", a.listDestinations)
 	mux.HandleFunc("POST /api/v1/destinations", a.createDestination)
+	mux.HandleFunc("GET /api/v1/destinations/runtime", a.listDestinationRuntime)
+	mux.HandleFunc("POST /api/v1/destinations/{id}/runtime", a.updateDestinationRuntime)
+	mux.HandleFunc("GET /api/v1/channels/{id}/telemetry/live", a.channelLiveTelemetry)
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -220,6 +223,12 @@ CREATE TABLE IF NOT EXISTS destinations (
 
 CREATE INDEX IF NOT EXISTS idx_destinations_owner ON destinations(owner_id);
 CREATE INDEX IF NOT EXISTS idx_destinations_platform ON destinations(platform);
+
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'unknown';
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS output_bitrate_mbps DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS reconnect_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '';
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS last_status_at TIMESTAMPTZ;
 `
 	_, err := db.ExecContext(ctx, schema)
 	return err

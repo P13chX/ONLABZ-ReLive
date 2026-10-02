@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>ReLive Technician Console</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">ONLABZ · ReLive</div>
+      <h1>Technician Console</h1>
+    </div>
+    <div class="top-actions">
+      <label class="channel-picker">
+        <span>Channel</span>
+        <select id="channelSelect" aria-label="Select channel"></select>
+      </label>
+      <button id="testBtn" class="btn primary" type="button">Test connection</button>
+      <div id="clock" class="clock">--:--:--</div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section id="incidentPanel" class="incident-panel hidden" aria-live="polite">
+      <div>
+        <div class="incident-title">Attention required</div>
+        <div id="incidentText" class="incident-text"></div>
+      </div>
+      <div id="incidentCount" class="incident-count">0</div>
+    </section>
+
+    <section class="status-strip">
+      <article class="stat-card">
+        <div class="stat-label">Input</div>
+        <div class="stat-line"><span id="inputDot" class="dot unknown"></span><strong id="inputStatus">UNKNOWN</strong></div>
+        <div id="inputMeta" class="muted">Waiting for telemetry</div>
+      </article>
+      <article class="stat-card">
+        <div class="stat-label">RTT</div>
+        <div class="metric"><span id="rttValue">—</span><small>ms</small></div>
+        <div id="rttHint" class="muted">SRT round trip</div>
+      </article>
+      <article class="stat-card">
+        <div class="stat-label">Link estimate</div>
+        <div class="metric"><span id="bwValue">—</span><small>Mbps</small></div>
+        <div id="headroomHint" class="muted">Available bandwidth</div>
+      </article>
+      <article class="stat-card">
+        <div class="stat-label">SRT latency</div>
+        <div class="metric"><span id="latencyValue">—</span><small>ms</small></div>
+        <div id="bufferHint" class="muted">Receive buffer — ms</div>
+      </article>
+    </section>
+
+    <section class="grid two">
+      <article class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">Contribution</div>
+            <h2>Network health</h2>
+          </div>
+          <span id="sampleCount" class="badge">0 samples</span>
+        </div>
+        <div class="chart-stack">
+          <div class="chart-block">
+            <div class="chart-head"><span>RTT</span><span id="rttRange">—</span></div>
+            <svg id="rttChart" class="spark" viewBox="0 0 700 150" preserveAspectRatio="none" aria-label="RTT history"></svg>
+          </div>
+          <div class="chart-block">
+            <div class="chart-head"><span>Estimated bandwidth</span><span id="bwRange">—</span></div>
+            <svg id="bwChart" class="spark" viewBox="0 0 700 150" preserveAspectRatio="none" aria-label="Bandwidth history"></svg>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">Channel</div>
+            <h2>Known-good profile</h2>
+          </div>
+          <span id="channelStatus" class="status-chip unknown">UNKNOWN</span>
+        </div>
+        <dl class="profile-grid">
+          <div><dt>Resolution</dt><dd id="resolution">—</dd></div>
+          <div><dt>FPS</dt><dd id="fps">—</dd></div>
+          <div><dt>Video bitrate</dt><dd id="videoBitrate">—</dd></div>
+          <div><dt>Audio bitrate</dt><dd id="audioBitrate">—</dd></div>
+          <div><dt>Protocol</dt><dd id="protocol">—</dd></div>
+          <div><dt>Stream ID</dt><dd id="streamId" class="mono">—</dd></div>
+        </dl>
+        <div class="recommendation">
+          <div class="stat-label">Latest recommendation</div>
+          <div id="recommendationTitle" class="recommendation-title">No test result</div>
+          <div id="recommendationReasons" class="muted">Run Test connection before going live.</div>
+        </div>
+      </article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="eyebrow">Distribution</div>
+          <h2>Destination status</h2>
+        </div>
+        <div class="legend">
+          <span><i class="dot live"></i>Live</span>
+          <span><i class="dot degraded"></i>Degraded</span>
+          <span><i class="dot failed"></i>Failed</span>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Destination</th>
+              <th>Platform</th>
+              <th>Status</th>
+              <th>Bitrate</th>
+              <th>Reconnects</th>
+              <th>Last update</th>
+              <th>Problem</th>
+            </tr>
+          </thead>
+          <tbody id="destinationRows">
+            <tr><td colspan="7" class="empty">No destinations configured</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="grid two">
+      <article class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">Packet counters</div>
+            <h2>SRT receive</h2>
+          </div>
+        </div>
+        <div class="counter-grid">
+          <div><span>Unique</span><strong id="pktUnique">—</strong></div>
+          <div><span>Loss</span><strong id="pktLoss">—</strong></div>
+          <div><span>Retrans</span><strong id="pktRetrans">—</strong></div>
+          <div><span>Dropped</span><strong id="pktDrop">—</strong></div>
+        </div>
+      </article>
+      <article class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">Operator</div>
+            <h2>Incident timeline</h2>
+          </div>
+        </div>
+        <div id="incidentTimeline" class="timeline">
+          <div class="empty">No incidents in this browser session</div>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <footer>
+    <span id="apiState">API: checking</span>
+    <span>Polling: 2s</span>
+    <span>Rolling graph: 60 samples</span>
+  </footer>
+  <script src="/app.js"></script>
+</body>
+</html>

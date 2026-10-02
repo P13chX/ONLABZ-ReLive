@@ -39,11 +39,23 @@ services:
     environment:
       RELIVE_DATABASE_URL: postgres://relive:relive@postgres:5432/relive?sslmode=disable
       RELIVE_HTTP_ADDR: :8090
+      RELIVE_CORE_URL: http://restreamer:8080
     ports:
       - "8090:8090"
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - relive
+
+  relive-ui:
+    build:
+      context: ./relive-ui
+    restart: unless-stopped
+    ports:
+      - "8088:80"
+    depends_on:
+      - relive-api
     networks:
       - relive
 
