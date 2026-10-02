@@ -66,3 +66,60 @@ func TestMediaFromStateMissingOutputAudio(t *testing.T) {
 		t.Fatalf("expected missing audio, got %s", status)
 	}
 }
+
+
+func TestBitstreamIntegrityPreserved(t *testing.T) {
+	s := coreProcessState{
+		Exec: "running",
+		Progress: coreProgress{
+			Input: []coreProgressIO{
+				{Type:"video", Codec:"h264", Width:1920, Height:1080, FPS:50, Bitrate:6000},
+				{Type:"audio", Codec:"aac", Sampling:48000, Channels:2, Bitrate:192},
+			},
+			Output: []coreProgressIO{
+				{Type:"video", Codec:"h264", Width:1920, Height:1080, FPS:50, Bitrate:5980},
+				{Type:"audio", Codec:"aac", Sampling:48000, Channels:2, Bitrate:190},
+			},
+		},
+	}
+	q:=evaluateBitstreamIntegrity(s)
+	if q.Status!="preserved" {
+		t.Fatalf("expected preserved, got %s reasons=%v",q.Status,q.Reasons)
+	}
+}
+
+func TestBitstreamIntegrityDetectsQualityChange(t *testing.T) {
+	s := coreProcessState{
+		Exec: "running",
+		Progress: coreProgress{
+			Input: []coreProgressIO{
+				{Type:"video", Codec:"h264", Width:1920, Height:1080, FPS:50, Bitrate:6000},
+				{Type:"audio", Codec:"aac", Sampling:48000, Channels:2},
+			},
+			Output: []coreProgressIO{
+				{Type:"video", Codec:"h264", Width:1920, Height:1080, FPS:25, Bitrate:4096},
+				{Type:"audio", Codec:"aac", Sampling:44100, Channels:2},
+			},
+		},
+	}
+	q:=evaluateBitstreamIntegrity(s)
+	if q.Status!="changed" {
+		t.Fatalf("expected changed, got %s",q.Status)
+	}
+	if len(q.Reasons)<2 {
+		t.Fatalf("expected frame-rate and audio sample-rate reasons, got %v",q.Reasons)
+	}
+}
+
+func TestBitstreamIntegrityUnknownUntilOutputExists(t *testing.T) {
+	s := coreProcessState{
+		Exec:"starting",
+		Progress:coreProgress{
+			Input:[]coreProgressIO{{Type:"video",Codec:"h264",Width:1920,Height:1080,FPS:50}},
+		},
+	}
+	q:=evaluateBitstreamIntegrity(s)
+	if q.Status!="unknown" {
+		t.Fatalf("expected unknown, got %s",q.Status)
+	}
+}
