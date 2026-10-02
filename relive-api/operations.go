@@ -12,18 +12,31 @@ import (
 type destinationRuntimeUpdate struct {
 	Status             string  `json:"status"`
 	OutputBitrateMbps  float64 `json:"output_bitrate_mbps"`
+	VideoBitrateKbps   float64 `json:"video_bitrate_kbps"`
+	AudioBitrateKbps   float64 `json:"audio_bitrate_kbps"`
+	FPS                float64 `json:"fps"`
+	AudioStatus        string  `json:"audio_status"`
+	AudioPPS           float64 `json:"audio_pps"`
 	ReconnectCount     int     `json:"reconnect_count"`
 	LastError          string  `json:"last_error"`
 }
 
 type destinationRuntime struct {
 	ID                 int64      `json:"id"`
+	ChannelID          *int64     `json:"channel_id,omitempty"`
 	OwnerID            string     `json:"owner_id"`
 	Name               string     `json:"name"`
 	Platform           string     `json:"platform"`
 	Enabled            bool       `json:"enabled"`
+	DesiredState       string     `json:"desired_state"`
 	Status             string     `json:"status"`
+	CoreProcessID      string     `json:"core_process_id,omitempty"`
 	OutputBitrateMbps  float64    `json:"output_bitrate_mbps"`
+	VideoBitrateKbps   float64    `json:"video_bitrate_kbps"`
+	AudioBitrateKbps   float64    `json:"audio_bitrate_kbps"`
+	FPS                float64    `json:"fps"`
+	AudioStatus        string     `json:"audio_status"`
+	AudioPPS           float64    `json:"audio_pps"`
 	ReconnectCount     int        `json:"reconnect_count"`
 	LastError          string     `json:"last_error,omitempty"`
 	LastStatusAt       *time.Time `json:"last_status_at,omitempty"`
@@ -90,11 +103,21 @@ func (a *app) channelLiveTelemetry(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) listDestinationRuntime(w http.ResponseWriter, r *http.Request) {
+	channelID := strings.TrimSpace(r.URL.Query().Get("channel_id"))
 	owner := strings.TrimSpace(r.URL.Query().Get("owner_id"))
-	q := `SELECT id,owner_id,name,platform,enabled,status,output_bitrate_mbps,reconnect_count,last_error,last_status_at
-		FROM destinations`
+	q := `SELECT id,channel_id,owner_id,name,platform,enabled,desired_state,status,core_process_id,
+		output_bitrate_mbps,video_bitrate_kbps,audio_bitrate_kbps,fps,audio_status,audio_pps,
+		reconnect_count,last_error,last_status_at FROM destinations`
 	args := []any{}
-	if owner != "" {
+	if channelID != "" {
+		id, err := strconv.ParseInt(channelID,10,64)
+		if err != nil {
+			writeJSON(w,http.StatusBadRequest,map[string]string{"error":"invalid channel_id"})
+			return
+		}
+		q += " WHERE channel_id=$1"
+		args = append(args,id)
+	} else if owner != "" {
 		q += " WHERE owner_id=$1"
 		args = append(args, owner)
 	}
@@ -110,8 +133,9 @@ func (a *app) listDestinationRuntime(w http.ResponseWriter, r *http.Request) {
 	out := []destinationRuntime{}
 	for rows.Next() {
 		var d destinationRuntime
-		if err := rows.Scan(&d.ID,&d.OwnerID,&d.Name,&d.Platform,&d.Enabled,&d.Status,
-			&d.OutputBitrateMbps,&d.ReconnectCount,&d.LastError,&d.LastStatusAt); err != nil {
+		if err := rows.Scan(&d.ID,&d.ChannelID,&d.OwnerID,&d.Name,&d.Platform,&d.Enabled,&d.DesiredState,
+			&d.Status,&d.CoreProcessID,&d.OutputBitrateMbps,&d.VideoBitrateKbps,&d.AudioBitrateKbps,
+			&d.FPS,&d.AudioStatus,&d.AudioPPS,&d.ReconnectCount,&d.LastError,&d.LastStatusAt); err != nil {
 			serverError(w, err)
 			return
 		}
@@ -142,11 +166,15 @@ func (a *app) updateDestinationRuntime(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w,http.StatusBadRequest,map[string]string{"error":"output_bitrate_mbps must be >= 0"})
 		return
 	}
+	if in.AudioStatus == "" { in.AudioStatus = "unknown" }
 	_, err = a.db.ExecContext(r.Context(), `
 		UPDATE destinations
-		SET status=$1,output_bitrate_mbps=$2,reconnect_count=$3,last_error=$4,last_status_at=now(),updated_at=now()
-		WHERE id=$5`,
-		in.Status,in.OutputBitrateMbps,in.ReconnectCount,strings.TrimSpace(in.LastError),id)
+		SET status=$1,output_bitrate_mbps=$2,video_bitrate_kbps=$3,audio_bitrate_kbps=$4,
+			fps=$5,audio_status=$6,audio_pps=$7,reconnect_count=$8,last_error=$9,
+			last_status_at=now(),updated_at=now()
+		WHERE id=$10`,
+		in.Status,in.OutputBitrateMbps,in.VideoBitrateKbps,in.AudioBitrateKbps,in.FPS,
+		in.AudioStatus,in.AudioPPS,in.ReconnectCount,strings.TrimSpace(in.LastError),id)
 	if err != nil {
 		serverError(w,err)
 		return
