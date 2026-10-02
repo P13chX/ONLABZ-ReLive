@@ -25,44 +25,41 @@ The priority is **stable contribution over cellular / mixed internet**, simple c
 
 ## Project status
 
-Current development branch:
+Active development is merged progressively into branch `2.x`; feature branches are used for each implementation batch and merged after review.
 
-```text
-relive-v0.1-mvp
-```
+### Implemented
 
-The original Restreamer 2.x bundle remains available on branch `2.x` as the upstream baseline.
-
-### Implemented in the ReLive development branch
-
-- Restreamer 2.x bundle retained as the media-engine foundation
-- ReLive Control API sidecar
+- Restreamer 2.x / datarhei Core retained as the media-engine foundation
+- ReLive Control API in Go
 - PostgreSQL control-plane storage
-- Persistent customer channels
-- Saved OBS/SRT channel profiles
-- Connection-test data model
-- Rule-based network recommendation engine
-- Known-good-profile-first workflow
-- ReLive health endpoint
+- Permanent customer channels and saved OBS/SRT profiles
+- Automatic SRT connection test and recommendation engine
+- datarhei Core SRT telemetry adapter
+- Persistent SRT telemetry history
+- Debounced cellular/network incident detection
+- Technician Console on port 8088
+- Channel-specific destinations
+- Independent datarhei Core / FFmpeg process per destination
+- Pass-through-first relay (`-c:v copy -c:a copy`)
+- Destination Start / Stop / Restart controls
+- Per-destination video bitrate, audio bitrate, FPS and audio PPS
+- Audio health states and missing-audio incidents
+- Destination reconnect/error monitoring
+- Persistent incident timeline
+- TikTok destination model with manual-key support
 - Docker Compose development stack
-- Initial development roadmap
 
-### In development / not yet complete
+### Still in development
 
-- Automatic SRT telemetry collection from the media engine
-- Customer login / authentication
-- Admin/User RBAC
-- Channel ownership enforcement from authenticated identity
-- Customer web UI
-- Test Connection workflow in the UI
-- Restreamer/Core telemetry adapter
-- Independent per-destination relay worker orchestration
-- Audio packet/drop watchdog
-- Destination credential vault
-- Cellular historical analytics
+- Customer authentication
+- Admin/User RBAC and authenticated ownership enforcement
+- Customer-facing simplified channel UI
+- Encrypted destination credential vault
+- TikTok external-generator sidecar
 - SRTLA / multipath contribution
 - WHIP contribution
-- Multi-node scheduling
+- Multi-node worker scheduler and failover
+- Long-term analytics beyond the current configurable telemetry retention
 
 ---
 
@@ -343,41 +340,21 @@ curl -X POST http://localhost:8090/api/v1/channels \
   }'
 ```
 
-## Submit a connection test
+## Automatic connection test
 
-At this stage telemetry is submitted to the API explicitly. A Core/SRT telemetry adapter is the next implementation milestone.
+Start a real SRT/Core-backed test:
 
 ```bash
-curl -X POST http://localhost:8090/api/v1/channels/1/tests \
-  -H 'content-type: application/json' \
-  -d '{
-    "rtt_avg_ms":95,
-    "rtt_max_ms":180,
-    "packet_loss_pct":0.8,
-    "retransmit_pct":1.1,
-    "bitrate_variance_pct":8,
-    "audio_drop_count":0,
-    "reconnect_count":0
-  }'
+curl -X POST http://localhost:8090/api/v1/channels/1/test/start
 ```
 
-Example:
+ReLive samples the active SRT publisher, evaluates RTT/loss/retransmit/bitrate stability, stores the result, and finishes the channel as `READY` or `DEGRADED`.
 
-```json
-{
-  "result": "KEEP",
-  "network_health": "GOOD",
-  "current_video_bitrate_kbps": 5500,
-  "recommended_video_bitrate_kbps": 5500,
-  "current_srt_latency_ms": 750,
-  "recommended_srt_latency_ms": 750,
-  "keep_resolution": true,
-  "keep_fps": true,
-  "keep_audio": true,
-  "reasons": [
-    "current known-good profile is suitable"
-  ]
-}
+Persistent telemetry:
+
+```http
+GET /api/v1/channels/1/telemetry/live
+GET /api/v1/channels/1/telemetry/history?minutes=15
 ```
 
 More API examples are in [relive-api/README.md](relive-api/README.md).
@@ -439,7 +416,9 @@ A Facebook reconnect must not restart:
 - YouTube
 - another destination
 
-This orchestration layer is planned but is not yet implemented in the current branch.
+This isolation is implemented with one datarhei Core / FFmpeg process per destination. Each worker subscribes to the already-published internal SRT resource, so multiple outputs do not open multiple contribution connections back to the customer's OBS encoder.
+
+See [docs/RELAY_WORKER.md](docs/RELAY_WORKER.md).
 
 ---
 
@@ -466,65 +445,32 @@ See [docs/TIKTOK_DESTINATION.md](docs/TIKTOK_DESTINATION.md) for the integration
 
 # Technician Console
 
-ReLive now includes a dedicated technician-facing operations UI.
-
-Default development URL:
+ReLive includes a technician-facing operations UI at:
 
 ```text
 http://localhost:8088
 ```
 
-The Technician Console is intentionally separate from the upstream Restreamer UI during the transition period.
+The console polls operational state every 2 seconds and shows:
 
-Current technician view includes:
-
-- channel selector
-- input LIVE/OFFLINE state
-- SRT RTT
-- estimated link bandwidth
-- SRT latency / receive buffer
-- rolling RTT graph
-- rolling bandwidth graph
-- known-good channel profile
-- latest connection-test recommendation
-- destination status table
-- per-destination output bitrate
-- reconnect counter
-- last destination error
-- incident banner
-- browser-session incident timeline
+- channel selector and Test Connection
+- SRT input LIVE/OFFLINE state
+- RTT, estimated link capacity, SRT latency and receive buffer
+- persistent RTT and receive-bitrate history (5 min / 15 min / 1 hour)
+- known-good contribution profile and recommendation
+- destination LIVE / DEGRADED / RECONNECTING / FAILED state
+- per-destination video bitrate
+- per-destination audio bitrate and audio PPS
+- FPS
+- reconnect count and redacted last error
+- Start / Stop / Restart controls
 - SRT packet counters
-- Test Connection action
+- persistent incident timeline
+- attention banner for failed/degraded/audio-missing outputs
 
-The UI polls the ReLive API every 2 seconds.
+Destination relay runtime comes from datarhei Core FFmpeg process state, rather than UI-only simulated status.
 
-Destination runtime states:
-
-```text
-UNKNOWN
-IDLE
-CONNECTING
-LIVE
-DEGRADED
-RECONNECTING
-FAILED
-DISABLED
-```
-
-Relay workers will update runtime state through:
-
-```http
-POST /api/v1/destinations/{id}/runtime
-```
-
-Live SRT contribution telemetry is exposed through:
-
-```http
-GET /api/v1/channels/{id}/telemetry/live
-```
-
-Current rolling graphs are maintained in the browser for the latest 60 samples. Persistent long-term telemetry and graph history are planned for a later phase.
-
+Telemetry is persisted in PostgreSQL. Default retention is 24 hours and can be changed with `RELIVE_TELEMETRY_RETENTION`.
 
 # Development roadmap
 
@@ -532,14 +478,14 @@ See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
 
 Immediate priorities:
 
-1. Connect real SRT/Core telemetry to the connection-test API.
-2. Add channel test lifecycle: `OFFLINE → TESTING → READY`.
-3. Add customer authentication and Admin/User ownership.
-4. Build the customer channel page around existing permanent channels.
-5. Implement pass-through destination workers with isolated reconnect.
-6. Add audio continuity monitoring.
-7. Add telemetry history and operator dashboard.
-8. Evaluate SRTLA / multipath after the standard OBS→SRT workflow is stable.
+1. Add encrypted destination credential storage.
+2. Add Admin/User authentication and server-side RBAC.
+3. Build the simplified customer-facing permanent-channel UI.
+4. Implement the isolated TikTok external-generator sidecar.
+5. Add notification delivery for critical incidents.
+6. Validate long-duration pass-through relay under real cellular contribution.
+7. Evaluate SRTLA / multipath bonding.
+8. Add multi-node worker scheduling and failover.
 
 ---
 
