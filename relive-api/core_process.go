@@ -118,7 +118,7 @@ func (c *coreClient) deleteProcess(ctx context.Context, id string) error {
 	return c.doJSON(ctx, http.MethodDelete, "/api/v3/process/"+url.PathEscape(id), nil, nil)
 }
 
-func internalSRTSourceURL(host string, port int, streamID, token string) string {
+func internalSRTSourceURL(host string, port int, streamID, token, passphrase string, pbkeylen int) string {
 	q := url.Values{}
 	q.Set("mode", "caller")
 	q.Set("transtype", "live")
@@ -127,6 +127,12 @@ func internalSRTSourceURL(host string, port int, streamID, token string) string 
 		stream += ",token=" + token
 	}
 	q.Set("streamid", stream)
+	if passphrase != "" {
+		q.Set("passphrase", passphrase)
+		if pbkeylen == 16 || pbkeylen == 24 || pbkeylen == 32 {
+			q.Set("pbkeylen", strconv.Itoa(pbkeylen))
+		}
+	}
 	return "srt://" + host + ":" + strconv.Itoa(port) + "?" + q.Encode()
 }
 
