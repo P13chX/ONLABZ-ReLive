@@ -1,0 +1,56 @@
+services:
+  restreamer:
+    build:
+      context: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "8181:8181"
+      - "1935:1935"
+      - "1936:1936"
+      - "6000:6000/udp"
+    volumes:
+      - restreamer-config:/core/config
+      - restreamer-data:/core/data
+    networks:
+      - relive
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: relive
+      POSTGRES_USER: relive
+      POSTGRES_PASSWORD: relive
+    volumes:
+      - relive-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relive -d relive"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - relive
+
+  relive-api:
+    build:
+      context: ./relive-api
+    restart: unless-stopped
+    environment:
+      RELIVE_DATABASE_URL: postgres://relive:relive@postgres:5432/relive?sslmode=disable
+      RELIVE_HTTP_ADDR: :8090
+    ports:
+      - "8090:8090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - relive
+
+volumes:
+  restreamer-config:
+  restreamer-data:
+  relive-postgres:
+
+networks:
+  relive:

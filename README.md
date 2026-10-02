@@ -1,161 +1,480 @@
-<h1 align="center">Restreamer</h1>
-<h3 align="center">A really nice and free alternative for handling live streams.</h3>
-<p align="center">
-<a href="https://github.com/datarhei/restreamer/blob/2.x/LICENSE" target="_blank"><img src="https://img.shields.io/github/license/datarhei/restreamer" alt="License" /></a>
-<a href="https://github.com/datarhei/restreamer/releases" target="_blank"><img src="https://img.shields.io/github/v/release/datarhei/restreamer?include_prereleases" alt="License" /></a>
-<a href="https://hub.docker.com/r/datarhei/restreamer" target="_blank"><img src="https://img.shields.io/docker/pulls/datarhei/restreamer" alt="Docker pulls" /></a>
-<a href="https://docs.datarhei.com/restreamer/getting-started/quick-start" target="_blank"><img src="https://img.shields.io/badge/documentation-get%20started-green" alt="Documentation" /></a>
-</p>
-<p align="center"><a href="https://demo.datarhei.com/ui" target="_blank">Try live demo</a><br />
-<a href="https://demo.datarhei.com/ui" target="_blank"><img src="https://img.shields.io/badge/username-admin-blue" alt="demo username" /></a>
-<a href="https://demo.datarhei.com/ui" target="_blank"><img src="https://img.shields.io/badge/password-demo-blue" alt="demo password" /></a>
+# ONLABZ-ReLive
 
-<p align="center">
-  <a href="https://datarhei.com">
-    <img src="https://github.com/datarhei/restreamer/blob/2.x/readme-promo.gif" alt="Restreamer Promo Video" />
-  </a>
-</p>
+**ONLABZ-ReLive** is a production-oriented fork of [datarhei Restreamer 2.x](https://github.com/datarhei/restreamer) focused on reliable remote contribution and multi-destination distribution.
 
-<p align="center">Self-hosting solution to stream live to your website and publish to many like YouTube-Live, Twitter, Twitch, Vimeo, and other platforms or services. Our Docker-Image is easy to install and runs on Linux environments (MacOS/Windows by Docker Desktop). Moreover, combine the Restreamer with single-board computers like Raspberry Pi or GPU powered systems for Video-Encoding.</p>
-<br />
-<hr />
+The project is being adapted for a common ONLIVEABLE workflow:
 
-## Features
-
-- Simplified User-Interface
-- Easy wizard configuration
-- Multiple audio/video inputs, outputs, protocols, and codecs
-- ReStreaming to platforms such as YouTube-Live, to software such as Wowza Media Server, and others based on protocols such as RTMP, SRT, ...
-- Option to mux a separate audio channel to the video
-- Build-in VideoJS-Player for your Website
-- Configurable publication website for streaming without player embedding
-- Content license with Creative Commons
-- HTTP/S- (HLS), RTMP/S- & SRT-Streaming Server
-- Automatic Let's Encrypt HTTPS certification
-- Viewer/Bandwidth Monitoring and limiting
-- Raspberry Pi (MMAL/OMX), Nvidia Cuda, Intel VAAPI support
-- Support for Hardware- and Virtual-Devices
-- FFmpeg Video-Processing (as native as possible)
-- REST-API (JSON) and 100% Swagger documented
-- Resource Monitoring (optionally by Prom-Metrics)
-- Server- and Process-Logging
-- GDPR compliant without third-party providers and does not save audience data
-
-## Quick setup
-
-### AMD64/ARMv7/ARM64:
-```sh
-docker run -d --restart=always --name restreamer \
-   -v /opt/restreamer/config:/core/config -v /opt/restreamer/data:/core/data \
-   -p 8080:8080 -p 8181:8181 \
-   -p 1935:1935 -p 1936:1936 \
-   -p 6000:6000/udp \
-   datarhei/restreamer:latest
+```text
+Customer / Remote Site
+OBS Studio
+    │
+    │ SRT preferred
+    │ RTMP/RTMPS fallback
+    ▼
+ONLABZ-ReLive
+    │
+    ├── pass-through → YouTube
+    ├── pass-through → Facebook
+    ├── pass-through → Custom RTMP/SRT
+    └── pass-through → Backup
 ```
 
-*`--privileged` just for local devices like usb cameras.*    
-*Try `--security-opt seccomp=unconfined` if no network source can be reached.*
+The priority is **stable contribution over cellular / mixed internet**, simple customer operation, and **pass-through-first** distribution that preserves the source video and audio whenever the destination is compatible.
 
-### ARMv7/ARM64 Raspberry Pi:
-```sh
-docker run -d --restart=always --name restreamer \
-   -v /opt/restreamer/config:/core/config -v /opt/restreamer/data:/core/data \
-   --privileged \
-   -p 8080:8080 -p 8181:8181 \
-   -p 1935:1935 -p 1936:1936 \
-   -p 6000:6000/udp \
-   datarhei/restreamer:rpi-latest
+---
+
+## Project status
+
+Current development branch:
+
+```text
+relive-v0.1-mvp
 ```
 
-*`--privileged` just for local devices like usb cameras.*    
-*Try `--security-opt seccomp=unconfined` if no network source can be reached.*
+The original Restreamer 2.x bundle remains available on branch `2.x` as the upstream baseline.
 
-### AMD64 Nvidia Cuda:
-```sh
-docker run -d --restart=always --name restreamer \
-   -v /opt/restreamer/config:/core/config -v /opt/restreamer/data:/core/data \
-   --runtime=nvidia --privileged \
-   -p 8080:8080 -p 8181:8181 \
-   -p 1935:1935 -p 1936:1936 \
-   -p 6000:6000/udp \
-   datarhei/restreamer:cuda-latest
+### Implemented in the ReLive development branch
+
+- Restreamer 2.x bundle retained as the media-engine foundation
+- ReLive Control API sidecar
+- PostgreSQL control-plane storage
+- Persistent customer channels
+- Saved OBS/SRT channel profiles
+- Connection-test data model
+- Rule-based network recommendation engine
+- Known-good-profile-first workflow
+- ReLive health endpoint
+- Docker Compose development stack
+- Initial development roadmap
+
+### In development / not yet complete
+
+- Automatic SRT telemetry collection from the media engine
+- Customer login / authentication
+- Admin/User RBAC
+- Channel ownership enforcement from authenticated identity
+- Customer web UI
+- Test Connection workflow in the UI
+- Restreamer/Core telemetry adapter
+- Independent per-destination relay worker orchestration
+- Audio packet/drop watchdog
+- Destination credential vault
+- Cellular historical analytics
+- SRTLA / multipath contribution
+- WHIP contribution
+- Multi-node scheduling
+
+---
+
+# Product philosophy
+
+## Permanent channels, not per-event setup
+
+Customers should not need to recreate a stream configuration for every job.
+
+A customer signs in and sees the same assigned channel:
+
+```text
+My Channel
+────────────────────────────
+
+Chiang Mai Main
+Status: OFFLINE
+
+Known-good profile
+1080p50
+Video 5.5 Mbps
+Audio 192 kbps
+SRT latency 750 ms
+
+[Test Connection]
+[View Settings]
+[Go Live]
 ```
 
-*`--privileged` just for local devices like usb cameras.*    
-*Try `--security-opt seccomp=unconfined` if no network source can be reached.*
+OBS is normally configured once during onboarding.
 
-### AMD64 Intel VAAPI:
-```sh
-docker run -d --restart=always --name restreamer \
-   -v /opt/restreamer/config:/core/config -v /opt/restreamer/data:/core/data \
-   -v /dev/dri:/dev/dri --privileged \
-   -p 8080:8080 -p 8181:8181 \
-   -p 1935:1935 -p 1936:1936 \
-   -p 6000:6000/udp \
-   datarhei/restreamer:vaapi-latest
+Before an event, the customer runs **Test Connection**. ReLive evaluates the current connection and either keeps the existing known-good profile or recommends only the settings that should change.
+
+Example:
+
+```text
+Current
+Video bitrate  5.5 Mbps
+SRT latency    750 ms
+
+Recommended today
+Video bitrate  4.5 Mbps
+SRT latency    1000 ms
+
+Resolution     Keep 1080p
+FPS            Keep 50
+Audio          Keep 192 kbps
 ```
 
-*`--privileged` just for local devices like usb cameras.*    
-*Try `--security-opt seccomp=unconfined` if no network source can be reached.*
+---
 
-*For external access (http/s, rtmp/s, srt), port forwarding from your Internet-Router to the Restreamer's internal IP address may need to be set up.*
+# Pass-through first
 
-## Documentation
+The default media policy is:
 
-Documentation is available on [docs.datarhei.com/restreamer](https://docs.datarhei.com/restreamer). We give many pieces of information, from setting up a camera, embedding your player upon your website, and streaming to services like, e.g., YouTube-Live, and many more.
-
-- [Quick start](https://docs.datarhei.com/restreamer/getting-started/quick-start)
-- [Installation](https://docs.datarhei.com/restreamer/installing/minimum-requirements)
-- [Manual](https://docs.datarhei.com/restreamer/knowledge-base/manual)
-- [Guides](https://docs.datarhei.com/restreamer/knowledge-base/user-guides)
-
-## Development
-
-### Create a custom image (bundle):
-
-#### [Restreamer FFmpeg](https://github.com/datarhei/ffmpeg):
-```
-$ git clone github.com/datarhei/ffmpeg
-$ cd ffmpeg
-$ docker build -f Dockerfile.alpine -t myffmpeg .
+```text
+VIDEO = COPY
+AUDIO = COPY
 ```
 
-#### [Restreamer backend](https://github.com/datarhei/core) (Golang):
+Equivalent FFmpeg concept:
 
-```
-$ git clone github.com/datarhei/core
-$ cd core
-$ docker build -t mycore .
-```
-
-#### [Restreamer interface](https://github.com/datarhei/restreamer-ui) (React):
-```
-$ git clone github.com/datarhei/restreamer-ui
-$ cd restreamer-ui
-$ docker build -t myrsui .
+```bash
+-c:v copy
+-c:a copy
 ```
 
-#### Restreamer bundle:
+ReLive should avoid unnecessary:
+
+- decoding
+- re-encoding
+- scaling
+- frame-rate conversion
+- audio resampling
+- loudness normalization
+
+Transcoding is a fallback for destination compatibility, not the normal media path.
+
+This is especially important for live music and production audio where another AAC encode generation is undesirable.
+
+---
+
+# Contribution strategy
+
+## Recommended: OBS → SRT → ReLive
+
+SRT is the preferred contribution transport for remote sites and cellular internet.
+
+```text
+OBS
+ │
+ │ SRT
+ ▼
+ReLive
+ │
+ ├── RTMP/RTMPS → YouTube
+ ├── RTMP/RTMPS → Facebook
+ └── SRT/RTMP   → downstream
 ```
-$ git clone github.com/datarhei/restreamer
-$ cd restreamer
-$ docker build --build-arg FFMPEG_IMAGE=myffmpeg --build-arg CORE_IMAGE=mycore --build-arg RESTREAMER_UI_IMAGE=myrsui -t myrestreamer .
-$ docker run -it --rm -p 8080:8080 myrestreamer
+
+RTMP/RTMPS remains available for compatibility.
+
+### Initial known-good profile
+
+A practical starting point for a regular customer channel:
+
+```text
+Resolution     1920x1080
+FPS            50
+Video          H.264
+Video bitrate  5500 kbps
+Audio          AAC-LC
+Audio bitrate  192 kbps
+Sample rate    48 kHz
+SRT latency    750 ms
 ```
 
-### To add/fix translations in the [Restreamer interface](https://github.com/datarhei/restreamer-ui):
+The connection-test engine should prefer keeping this profile if current network quality is acceptable.
 
-The Restreamer interface is currently translated in different languages, such as German, French, Italian, Spanish, and more. If you find errors in the translations or have better suggestions for some sentences, you can become a translation contributor on [poeditor.com](https://poeditor.com/join/project/ogATl3F48K).
-There you can also start a translation into a language that is not yet available in the Restreamer interface.
+---
 
-Contribute to the translations on: [https://poeditor.com/join/project/ogATl3F48K](https://poeditor.com/join/project/ogATl3F48K)
+# Connection recommendation engine
 
-## Community support
+The first implementation is rule-based and intentionally conservative.
 
-For general help using Restreamer, please refer to the official [documentation](https://docs.datarhei.com/restreamer). For additional support, you can use Github to ask a question (Bug reports, Contributions, Features).
+Current API result states:
 
-## License
-See the [LICENSE](./LICENSE) file for licensing information.
+- `KEEP`
+- `INCREASE_LATENCY`
+- `REDUCE_BITRATE`
+- `SAFE_PROFILE`
+- `REVIEW`
 
-## Business inquiries
-**We provide support for commercial requirements with professional support, agile software development, and consulting.** If you have a commercial request, be it a bug or a feature enhancement, please contact us directly at support@datarhei.com.
+Current telemetry input:
+
+- average RTT
+- maximum RTT
+- packet loss
+- retransmit rate
+- bitrate variance
+- audio drop count
+- reconnect count
+
+General policy:
+
+```text
+Good network
+→ keep known-good settings
+
+Moderate loss / high RTT
+→ keep quality, increase SRT latency first
+
+Unstable network
+→ increase latency + reduce video bitrate
+
+Severe instability
+→ recommend safe profile
+
+Audio drop / reconnect
+→ flag operator review
+```
+
+The server should not silently change OBS settings.
+
+---
+
+# Architecture
+
+```text
+                        ReLive UI
+                           │
+                           ▼
+                  ReLive Control API
+                           │
+              ┌────────────┴────────────┐
+              ▼                         ▼
+          PostgreSQL              datarhei Core
+                                        │
+                                        ▼
+                                      FFmpeg
+                                        │
+                   ┌────────────────────┼──────────────────┐
+                   ▼                    ▼                  ▼
+                YouTube             Facebook          Custom
+```
+
+The control plane is intentionally separated from datarhei Core.
+
+Core remains focused on media/process handling while ReLive adds:
+
+- users
+- ownership
+- permanent channels
+- recommendations
+- destination management
+- telemetry history
+- audit controls
+
+This reduces the amount of upstream Core code that needs to be forked.
+
+---
+
+# Repository layout
+
+```text
+ONLABZ-ReLive/
+├── Dockerfile
+├── run.sh
+├── docker-compose.relive.yml
+│
+├── relive-api/
+│   ├── Dockerfile
+│   ├── go.mod
+│   ├── main.go
+│   └── README.md
+│
+├── docs/
+│   └── DEVELOPMENT_PLAN.md
+│
+└── ui-root/
+```
+
+The repository still contains the original Restreamer bundle structure.
+
+---
+
+# ReLive Control API
+
+The initial Control API is written in Go and uses PostgreSQL.
+
+Default local endpoint:
+
+```text
+http://localhost:8090
+```
+
+## Run the development stack
+
+```bash
+docker compose -f docker-compose.relive.yml up --build
+```
+
+Services:
+
+| Service | Purpose | Default port |
+|---|---|---:|
+| Restreamer/Core | Media engine | 8080 |
+| Restreamer HTTP | Media HTTP | 8181 |
+| RTMP | Media ingest | 1935 |
+| RTMPS/secondary RTMP | Media ingest | 1936 |
+| SRT | Contribution | 6000/udp |
+| ReLive API | Control plane | 8090 |
+| PostgreSQL | Internal database | internal only |
+
+## API health
+
+```bash
+curl http://localhost:8090/health
+```
+
+## Create a permanent channel
+
+```bash
+curl -X POST http://localhost:8090/api/v1/channels \
+  -H 'content-type: application/json' \
+  -d '{
+    "owner_id":"customer-001",
+    "name":"Chiang Mai Main",
+    "ingest_protocol":"srt",
+    "ingest_host":"ingest.example.com",
+    "ingest_port":10001,
+    "stream_id":"customer-001-main",
+    "resolution":"1920x1080",
+    "fps":50,
+    "video_bitrate_kbps":5500,
+    "audio_bitrate_kbps":192,
+    "srt_latency_ms":750
+  }'
+```
+
+## Submit a connection test
+
+At this stage telemetry is submitted to the API explicitly. A Core/SRT telemetry adapter is the next implementation milestone.
+
+```bash
+curl -X POST http://localhost:8090/api/v1/channels/1/tests \
+  -H 'content-type: application/json' \
+  -d '{
+    "rtt_avg_ms":95,
+    "rtt_max_ms":180,
+    "packet_loss_pct":0.8,
+    "retransmit_pct":1.1,
+    "bitrate_variance_pct":8,
+    "audio_drop_count":0,
+    "reconnect_count":0
+  }'
+```
+
+Example:
+
+```json
+{
+  "result": "KEEP",
+  "network_health": "GOOD",
+  "current_video_bitrate_kbps": 5500,
+  "recommended_video_bitrate_kbps": 5500,
+  "current_srt_latency_ms": 750,
+  "recommended_srt_latency_ms": 750,
+  "keep_resolution": true,
+  "keep_fps": true,
+  "keep_audio": true,
+  "reasons": [
+    "current known-good profile is suitable"
+  ]
+}
+```
+
+More API examples are in [relive-api/README.md](relive-api/README.md).
+
+---
+
+# Cellular resilience roadmap
+
+ReLive is intended to work well for remote production locations where connectivity may be a mixture of:
+
+- venue fiber
+- AIS / TRUE 4G/5G
+- portable 5G routers
+- shared venue Wi-Fi
+
+The platform cannot create bandwidth that does not exist. Therefore the design separates two problems:
+
+### Recoverable instability
+
+SRT can help with:
+
+- packet loss
+- jitter
+- short interruptions
+- retransmission
+- variable RTT
+
+### Insufficient sustained bandwidth
+
+If the uplink cannot continuously carry the OBS bitrate, the correct action is to reduce contribution bitrate at OBS.
+
+ReLive should recommend that change rather than receiving an oversized stream and transcoding it after the bottleneck.
+
+Future advanced contribution modes will investigate:
+
+- SRTLA / multipath
+- multi-network bonding
+- WHIP
+- alternate gateway implementations
+
+---
+
+# Destination isolation
+
+The target distribution design uses independent destination relay processes.
+
+```text
+Original stream
+      │
+      ├── relay → YouTube
+      ├── relay → Facebook
+      ├── relay → TTM
+      └── relay → Backup
+```
+
+A Facebook reconnect must not restart:
+
+- the ingest stream
+- YouTube
+- another destination
+
+This orchestration layer is planned but is not yet implemented in the current branch.
+
+---
+
+# Development roadmap
+
+See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
+
+Immediate priorities:
+
+1. Connect real SRT/Core telemetry to the connection-test API.
+2. Add channel test lifecycle: `OFFLINE → TESTING → READY`.
+3. Add customer authentication and Admin/User ownership.
+4. Build the customer channel page around existing permanent channels.
+5. Implement pass-through destination workers with isolated reconnect.
+6. Add audio continuity monitoring.
+7. Add telemetry history and operator dashboard.
+8. Evaluate SRTLA / multipath after the standard OBS→SRT workflow is stable.
+
+---
+
+# Upstream Restreamer
+
+This project is based on the Restreamer 2.x bundle and continues to use the Restreamer/Core/FFmpeg ecosystem.
+
+Upstream projects:
+
+- [datarhei/restreamer](https://github.com/datarhei/restreamer)
+- [datarhei/core](https://github.com/datarhei/core)
+- [datarhei/restreamer-ui](https://github.com/datarhei/restreamer-ui)
+- [datarhei/ffmpeg](https://github.com/datarhei/ffmpeg)
+
+The `2.x` branch is intentionally kept close to upstream while ReLive development takes place on dedicated branches.
+
+---
+
+# License
+
+The upstream Restreamer license remains applicable to the inherited project code. See [LICENSE](LICENSE).
