@@ -443,6 +443,26 @@ This orchestration layer is planned but is not yet implemented in the current br
 
 ---
 
+
+# TikTok LIVE destination
+
+ReLive now includes TikTok in the destination platform catalog.
+
+Current key modes:
+
+- `manual_key` — use a TikTok RTMP URL/key supplied by the account owner
+- `external_generator` — reserved for an isolated key-generation sidecar
+
+The external-generator path is intentionally separated from the Apache-2.0 ReLive binary because current community TikTok LIVE generators are unofficial and may use different licenses or external account/session mechanisms.
+
+Candidate projects evaluated:
+
+- `Loukious/StreamLabsTikTokStreamKeyGenerator` — simpler Streamlabs-based key generation flow
+- `Loukious/TikTokStreamKeyGenerator` — newer LIVE room + FFmpeg proxy + LIVE Studio-style metadata flow
+
+See [docs/TIKTOK_DESTINATION.md](docs/TIKTOK_DESTINATION.md) for the integration contract and security boundaries.
+
+
 # Development roadmap
 
 See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
