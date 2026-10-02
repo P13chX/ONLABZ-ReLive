@@ -40,6 +40,11 @@ services:
       RELIVE_DATABASE_URL: postgres://relive:relive@postgres:5432/relive?sslmode=disable
       RELIVE_HTTP_ADDR: :8090
       RELIVE_CORE_URL: http://restreamer:8080
+      RELIVE_INTERNAL_SRT_HOST: restreamer
+      RELIVE_INTERNAL_SRT_PORT: "6000"
+      RELIVE_RELAY_POLL_INTERVAL: 2s
+      RELIVE_TELEMETRY_INTERVAL: 2s
+      RELIVE_TELEMETRY_RETENTION: 24h
     ports:
       - "8090:8090"
     depends_on:
