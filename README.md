@@ -463,6 +463,69 @@ Candidate projects evaluated:
 See [docs/TIKTOK_DESTINATION.md](docs/TIKTOK_DESTINATION.md) for the integration contract and security boundaries.
 
 
+
+# Technician Console
+
+ReLive now includes a dedicated technician-facing operations UI.
+
+Default development URL:
+
+```text
+http://localhost:8088
+```
+
+The Technician Console is intentionally separate from the upstream Restreamer UI during the transition period.
+
+Current technician view includes:
+
+- channel selector
+- input LIVE/OFFLINE state
+- SRT RTT
+- estimated link bandwidth
+- SRT latency / receive buffer
+- rolling RTT graph
+- rolling bandwidth graph
+- known-good channel profile
+- latest connection-test recommendation
+- destination status table
+- per-destination output bitrate
+- reconnect counter
+- last destination error
+- incident banner
+- browser-session incident timeline
+- SRT packet counters
+- Test Connection action
+
+The UI polls the ReLive API every 2 seconds.
+
+Destination runtime states:
+
+```text
+UNKNOWN
+IDLE
+CONNECTING
+LIVE
+DEGRADED
+RECONNECTING
+FAILED
+DISABLED
+```
+
+Relay workers will update runtime state through:
+
+```http
+POST /api/v1/destinations/{id}/runtime
+```
+
+Live SRT contribution telemetry is exposed through:
+
+```http
+GET /api/v1/channels/{id}/telemetry/live
+```
+
+Current rolling graphs are maintained in the browser for the latest 60 samples. Persistent long-term telemetry and graph history are planned for a later phase.
+
+
 # Development roadmap
 
 See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
