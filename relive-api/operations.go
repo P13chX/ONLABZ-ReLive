@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -39,7 +40,7 @@ type destinationRuntime struct {
 	AudioPPS           float64    `json:"audio_pps"`
 	ReconnectCount     int        `json:"reconnect_count"`
 	QualityStatus      string     `json:"quality_status"`
-	QualityReasons     []string   `json:"quality_reasons"`
+	QualityReasons     json.RawMessage `json:"quality_reasons"`
 	SourceVideoCodec   string     `json:"source_video_codec"`
 	OutputVideoCodec   string     `json:"output_video_codec"`
 	SourceResolution   string     `json:"source_resolution"`
