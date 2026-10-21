@@ -303,6 +303,8 @@ func sanitizeRelayError(msg string, d relayDestination) string {
 }
 
 func (a *app) destinationCommand(w http.ResponseWriter, r *http.Request) {
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
 	id,err := strconv.ParseInt(r.PathValue("id"),10,64)
 	if err!=nil {
 		writeJSON(w,http.StatusBadRequest,map[string]string{"error":"invalid destination id"})
@@ -316,12 +318,14 @@ func (a *app) destinationCommand(w http.ResponseWriter, r *http.Request) {
 	in.Command=strings.ToLower(strings.TrimSpace(in.Command))
 
 	var processID string
-	err=a.db.QueryRowContext(r.Context(),`SELECT core_process_id FROM destinations WHERE id=$1`,id).Scan(&processID)
+	var channelID int64
+	err=a.db.QueryRowContext(r.Context(),`SELECT core_process_id,channel_id FROM destinations WHERE id=$1`,id).Scan(&processID,&channelID)
 	if errors.Is(err,sql.ErrNoRows) {
 		writeJSON(w,http.StatusNotFound,map[string]string{"error":"destination not found"})
 		return
 	}
 	if err!=nil { serverError(w,err);return }
+	if !a.canAccessChannel(r.Context(),u,channelID) { writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"});return }
 
 	switch in.Command {
 	case "start":
@@ -368,11 +372,14 @@ func (a *app) recordIncident(ctx context.Context, channelID,destinationID int64,
 }
 
 func (a *app) listIncidents(w http.ResponseWriter,r *http.Request) {
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
 	channelID,err:=strconv.ParseInt(r.URL.Query().Get("channel_id"),10,64)
 	if err!=nil || channelID<=0 {
 		writeJSON(w,http.StatusBadRequest,map[string]string{"error":"channel_id is required"})
 		return
 	}
+	if !a.canAccessChannel(r.Context(),u,channelID) { writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"});return }
 	limit:=100
 	if raw:=r.URL.Query().Get("limit");raw!="" {
 		if n,e:=strconv.Atoi(raw);e==nil && n>0 && n<=500 { limit=n }
