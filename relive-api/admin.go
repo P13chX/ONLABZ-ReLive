@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
@@ -241,6 +242,6 @@ func (a *app) systemHealth(w http.ResponseWriter,r *http.Request) {
 	rtmp,err:=a.core.rtmp(r.Context())
 	if err!=nil { h.Core="degraded";h.Status="degraded" } else { h.RTMPPublishers=len(rtmp) }
 	srt,err:=a.core.srt(r.Context())
-	if err!=nil { h.Core="degraded";h.Status="degraded" } else { h.SRTPublishers=len(srt.Publishers) }
+	if err!=nil { h.Core="degraded";h.Status="degraded" } else { h.SRTPublishers=len(srt.Publisher) }
 	writeJSON(w,http.StatusOK,h)
 }
