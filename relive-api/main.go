@@ -34,6 +34,10 @@ type channel struct {
 	IngestHost         string    `json:"ingest_host"`
 	IngestPort         int       `json:"ingest_port"`
 	StreamID           string    `json:"stream_id"`
+	StreamKey          string    `json:"stream_key,omitempty"`
+	StreamKeyVersion   int       `json:"stream_key_version"`
+	StreamKeyUpdatedAt *time.Time `json:"stream_key_updated_at,omitempty"`
+	IngestApp          string    `json:"ingest_app"`
 	Resolution         string    `json:"resolution"`
 	FPS                int       `json:"fps"`
 	VideoBitrateKbps   int       `json:"video_bitrate_kbps"`
@@ -95,24 +99,37 @@ func main() {
 		testFor:   envDuration("RELIVE_TEST_DURATION", 30*time.Second),
 		sampleFor: envDuration("RELIVE_SAMPLE_INTERVAL", 2*time.Second),
 	}
+	if err := a.bootstrapSuperAdmin(context.Background()); err != nil {
+		log.Fatal(err)
+	}
+
+	apiMux := http.NewServeMux()
+	apiMux.HandleFunc("GET /api/v1/auth/me", a.me)
+	apiMux.HandleFunc("POST /api/v1/auth/logout", a.logout)
+	apiMux.HandleFunc("GET /api/v1/users", a.listUsers)
+	apiMux.HandleFunc("POST /api/v1/users", a.createUser)
+	apiMux.HandleFunc("GET /api/v1/channels", a.listChannels)
+	apiMux.HandleFunc("POST /api/v1/channels", a.createChannel)
+	apiMux.HandleFunc("GET /api/v1/channels/{id}", a.getChannel)
+	apiMux.HandleFunc("POST /api/v1/channels/{id}/stream-key/reset", a.resetChannelStreamKey)
+	apiMux.HandleFunc("POST /api/v1/channels/{id}/tests", a.createTest)
+	apiMux.HandleFunc("POST /api/v1/channels/{id}/test/start", a.startConnectionTest)
+	apiMux.HandleFunc("POST /api/v1/channels/{id}/test/cancel", a.cancelConnectionTest)
+	apiMux.HandleFunc("GET /api/v1/channels/{id}/recommendation", a.latestRecommendation)
+	apiMux.HandleFunc("GET /api/v1/destination-platforms", a.destinationPlatforms)
+	apiMux.HandleFunc("GET /api/v1/destinations", a.listDestinations)
+	apiMux.HandleFunc("POST /api/v1/destinations", a.createDestination)
+	apiMux.HandleFunc("GET /api/v1/destinations/runtime", a.listDestinationRuntime)
+	apiMux.HandleFunc("POST /api/v1/destinations/{id}/runtime", a.updateDestinationRuntime)
+	apiMux.HandleFunc("POST /api/v1/destinations/{id}/command", a.destinationCommand)
+	apiMux.HandleFunc("GET /api/v1/channels/{id}/telemetry/live", a.channelLiveTelemetry)
+	apiMux.HandleFunc("GET /api/v1/channels/{id}/telemetry/history", a.telemetryHistory)
+	apiMux.HandleFunc("GET /api/v1/incidents", a.listIncidents)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", a.health)
-	mux.HandleFunc("GET /api/v1/channels", a.listChannels)
-	mux.HandleFunc("POST /api/v1/channels", a.createChannel)
-	mux.HandleFunc("GET /api/v1/channels/{id}", a.getChannel)
-	mux.HandleFunc("POST /api/v1/channels/{id}/tests", a.createTest)
-	mux.HandleFunc("POST /api/v1/channels/{id}/test/start", a.startConnectionTest)
-	mux.HandleFunc("POST /api/v1/channels/{id}/test/cancel", a.cancelConnectionTest)
-	mux.HandleFunc("GET /api/v1/channels/{id}/recommendation", a.latestRecommendation)
-	mux.HandleFunc("GET /api/v1/destination-platforms", a.destinationPlatforms)
-	mux.HandleFunc("GET /api/v1/destinations", a.listDestinations)
-	mux.HandleFunc("POST /api/v1/destinations", a.createDestination)
-	mux.HandleFunc("GET /api/v1/destinations/runtime", a.listDestinationRuntime)
-	mux.HandleFunc("POST /api/v1/destinations/{id}/runtime", a.updateDestinationRuntime)
-	mux.HandleFunc("POST /api/v1/destinations/{id}/command", a.destinationCommand)
-	mux.HandleFunc("GET /api/v1/channels/{id}/telemetry/live", a.channelLiveTelemetry)
-	mux.HandleFunc("GET /api/v1/channels/{id}/telemetry/history", a.telemetryHistory)
-	mux.HandleFunc("GET /api/v1/incidents", a.listIncidents)
+	mux.HandleFunc("POST /api/v1/auth/login", a.login)
+	mux.Handle("/api/v1/", a.authMiddleware(apiMux))
 
 	runtimeCtx, runtimeCancel := context.WithCancel(context.Background())
 	defer runtimeCancel()
@@ -171,10 +188,14 @@ CREATE TABLE IF NOT EXISTS channels (
 	id BIGSERIAL PRIMARY KEY,
 	owner_id TEXT NOT NULL,
 	name TEXT NOT NULL,
-	ingest_protocol TEXT NOT NULL DEFAULT 'srt',
+	ingest_protocol TEXT NOT NULL DEFAULT 'rtmp',
 	ingest_host TEXT NOT NULL,
-	ingest_port INTEGER NOT NULL,
+	ingest_port INTEGER NOT NULL DEFAULT 1935,
+	ingest_app TEXT NOT NULL DEFAULT '/live',
 	stream_id TEXT NOT NULL UNIQUE,
+	stream_key TEXT NOT NULL DEFAULT '',
+	stream_key_version INTEGER NOT NULL DEFAULT 1,
+	stream_key_updated_at TIMESTAMPTZ,
 	resolution TEXT NOT NULL DEFAULT '1920x1080',
 	fps INTEGER NOT NULL DEFAULT 50,
 	video_bitrate_kbps INTEGER NOT NULL DEFAULT 5500,
@@ -292,6 +313,42 @@ CREATE TABLE IF NOT EXISTS incident_events (
 
 CREATE INDEX IF NOT EXISTS idx_incident_events_channel_time
 ON incident_events(channel_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS users (
+	id BIGSERIAL PRIMARY KEY,
+	email TEXT NOT NULL UNIQUE,
+	display_name TEXT NOT NULL DEFAULT '',
+	owner_id TEXT NOT NULL,
+	role TEXT NOT NULL CHECK (role IN ('user','administrator','super_administrator')),
+	password_salt TEXT NOT NULL,
+	password_hash TEXT NOT NULL,
+	active BOOLEAN NOT NULL DEFAULT true,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_owner ON users(owner_id);
+
+CREATE TABLE IF NOT EXISTS user_channels (
+	user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	channel_id BIGINT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+	PRIMARY KEY(user_id,channel_id)
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+	token_hash TEXT PRIMARY KEY,
+	user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	expires_at TIMESTAMPTZ NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+ALTER TABLE channels ADD COLUMN IF NOT EXISTS ingest_app TEXT NOT NULL DEFAULT '/live';
+ALTER TABLE channels ADD COLUMN IF NOT EXISTS stream_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE channels ADD COLUMN IF NOT EXISTS stream_key_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE channels ADD COLUMN IF NOT EXISTS stream_key_updated_at TIMESTAMPTZ;
 `
 	_, err := db.ExecContext(ctx, schema)
 	return err
