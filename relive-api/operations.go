@@ -182,6 +182,10 @@ func (a *app) listDestinationRuntime(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) updateDestinationRuntime(w http.ResponseWriter, r *http.Request) {
+	if _,ok:=a.requireRole(r,roleSuperAdministrator);!ok {
+		writeJSON(w,http.StatusForbidden,map[string]string{"error":"super administrator role required"})
+		return
+	}
 	id, err := strconv.ParseInt(r.PathValue("id"),10,64)
 	if err != nil {
 		writeJSON(w,http.StatusBadRequest,map[string]string{"error":"invalid destination id"})
