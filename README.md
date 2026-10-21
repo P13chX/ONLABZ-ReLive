@@ -29,6 +29,10 @@ Active development is merged progressively into branch `2.x`; feature branches a
 
 ### Implemented
 
+- Three-tier access control: user / administrator / super administrator
+- Session-based login and server-side channel ownership enforcement
+- RTMP-first ingest with random per-channel stream keys
+- One-click RTMP stream-key rotation with relay worker reconnect
 - Source-to-destination bitstream integrity monitoring (`PRESERVED / QUALITY CHANGED`)
 - Critical quality-change incidents for codec/resolution/FPS/audio-format drift
 - Mandatory local pre-merge Go checks via `scripts/premerge-check.sh`
@@ -421,7 +425,7 @@ A Facebook reconnect must not restart:
 
 This isolation is implemented with one datarhei Core / FFmpeg process per destination. Each worker subscribes to the already-published internal SRT resource, so multiple outputs do not open multiple contribution connections back to the customer's OBS encoder.
 
-See [docs/RELAY_WORKER.md](docs/RELAY_WORKER.md) and [docs/QUALITY_INTEGRITY.md](docs/QUALITY_INTEGRITY.md).
+See [docs/RELAY_WORKER.md](docs/RELAY_WORKER.md), [docs/QUALITY_INTEGRITY.md](docs/QUALITY_INTEGRITY.md), and [docs/RBAC_RTMP.md](docs/RBAC_RTMP.md).
 
 ---
 
@@ -535,3 +539,20 @@ See:
 - [NOTICE](NOTICE) — upstream attribution and ONLIVEABLE modifications
 
 Third-party platform names are used only to describe interoperability. ReLive does not require or depend on Peplink, SpeedFusion, FusionHub, or any specific bonding platform.
+
+
+## Access roles and RTMP ingest
+
+ReLive defaults new customer channels to RTMP on `/live` with a random per-channel stream key.
+
+Role summary:
+
+| Role | Scope | UI |
+| --- | --- | --- |
+| user | explicitly assigned channels | simplified operations |
+| administrator | all channels for one owner | technician/advanced |
+| super_administrator | every owner and channel | global administration |
+
+Bootstrap credentials are supplied only through environment variables; no default super-admin password is stored in the repository.
+
+See [docs/RBAC_RTMP.md](docs/RBAC_RTMP.md).
