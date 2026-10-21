@@ -148,11 +148,23 @@ func (a *app) updateUser(w http.ResponseWriter,r *http.Request) {
 	var in userUpdateInput
 	if err:=decodeJSON(r,&in);err!=nil { writeJSON(w,http.StatusBadRequest,map[string]string{"error":err.Error()});return }
 	if in.DisplayName!=nil { target.DisplayName=strings.TrimSpace(*in.DisplayName) }
-	if in.Active!=nil { target.Active=*in.Active }
+	if in.Active!=nil {
+		if target.Role==roleSuperAdministrator && target.Active && !*in.Active {
+			var count int
+			if err:=a.db.QueryRowContext(r.Context(),"SELECT COUNT(*) FROM users WHERE role=$1 AND active=true",roleSuperAdministrator).Scan(&count);err!=nil { serverError(w,err);return }
+			if count<=1 { writeJSON(w,http.StatusConflict,map[string]string{"error":"cannot disable the last active super administrator"});return }
+		}
+		target.Active=*in.Active
+	}
 	if in.Role!=nil {
 		role:=strings.TrimSpace(*in.Role)
 		if !validRole(role) { writeJSON(w,http.StatusBadRequest,map[string]string{"error":"invalid role"});return }
 		if actor.Role!=roleSuperAdministrator && role==roleSuperAdministrator { writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"});return }
+		if target.Role==roleSuperAdministrator && role!=roleSuperAdministrator {
+			var count int
+			if err:=a.db.QueryRowContext(r.Context(),"SELECT COUNT(*) FROM users WHERE role=$1 AND active=true",roleSuperAdministrator).Scan(&count);err!=nil { serverError(w,err);return }
+			if count<=1 { writeJSON(w,http.StatusConflict,map[string]string{"error":"cannot demote the last active super administrator"});return }
+		}
 		target.Role=role
 	}
 	tx,err:=a.db.BeginTx(r.Context(),nil);if err!=nil { serverError(w,err);return };defer tx.Rollback()
