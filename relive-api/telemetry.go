@@ -21,6 +21,37 @@ type coreClient struct {
 	client   *http.Client
 }
 
+type rtmpChannel struct {
+	Name string `json:"name"`
+}
+
+func (c *coreClient) rtmp(ctx context.Context) ([]rtmpChannel,error) {
+	req,err:=http.NewRequestWithContext(ctx,http.MethodGet,c.baseURL+"/api/v3/rtmp",nil)
+	if err!=nil { return nil,err }
+	if c.username!="" { req.SetBasicAuth(c.username,c.password) }
+	res,err:=c.client.Do(req)
+	if err!=nil { return nil,err }
+	defer res.Body.Close()
+	if res.StatusCode!=http.StatusOK {
+		return nil,fmt.Errorf("core RTMP API returned %s",res.Status)
+	}
+	var out []rtmpChannel
+	if err:=json.NewDecoder(res.Body).Decode(&out);err!=nil { return nil,err }
+	return out,nil
+}
+
+func findRTMPPublisher(channels []rtmpChannel, app, key string) bool {
+	app=strings.Trim(normalizeIngestApp(app),"/")
+	key=strings.TrimSpace(key)
+	for _,ch:=range channels {
+		name:=strings.Trim(ch.Name,"/")
+		if name==key || name==app+"/"+key {
+			return true
+		}
+	}
+	return false
+}
+
 type srtChannels struct {
 	Publisher   map[string]uint32        `json:"publisher"`
 	Subscriber  map[string][]uint32      `json:"subscriber"`
