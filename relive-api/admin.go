@@ -203,8 +203,10 @@ func (a *app) updateChannel(w http.ResponseWriter,r *http.Request) {
 			resolution=$6,fps=$7,video_bitrate_kbps=$8,audio_bitrate_kbps=$9,srt_latency_ms=$10,updated_at=now()
 		WHERE id=$11`,ch.Name,ch.IngestProtocol,ch.IngestHost,ch.IngestPort,ch.IngestApp,ch.Resolution,ch.FPS,ch.VideoBitrateKbps,ch.AudioBitrateKbps,ch.SRTLatencyMs,id)
 	if err!=nil { serverError(w,err);return }
-	if ch.PreviewProcessID!="" {
-		ctx,cancel:=context.WithTimeout(r.Context(),4*time.Second);_ = a.core.deleteProcess(ctx,ch.PreviewProcessID);cancel()
+	var previewPID string
+	_ = a.db.QueryRowContext(r.Context(),"SELECT COALESCE(preview_process_id,'') FROM channels WHERE id=$1",id).Scan(&previewPID)
+	if previewPID!="" {
+		ctx,cancel:=context.WithTimeout(r.Context(),4*time.Second);_ = a.core.deleteProcess(ctx,previewPID);cancel()
 		_,_=a.db.ExecContext(r.Context(),"UPDATE channels SET preview_process_id='' WHERE id=$1",id)
 	}
 	writeJSON(w,http.StatusOK,ch)
