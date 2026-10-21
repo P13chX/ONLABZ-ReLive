@@ -460,6 +460,11 @@ func (a *app) getChannel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) createTest(w http.ResponseWriter, r *http.Request) {
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
+	id,err:=strconv.ParseInt(r.PathValue("id"),10,64)
+	if err!=nil { writeJSON(w,http.StatusBadRequest,map[string]string{"error":"invalid channel id"});return }
+	if !a.canAccessChannel(r.Context(),u,id) { writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"});return }
 	c, err := a.channelByID(r.Context(), r.PathValue("id"))
 	if errors.Is(err, sql.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "channel not found"})
@@ -501,6 +506,11 @@ func (a *app) createTest(w http.ResponseWriter, r *http.Request) {
 
 
 func (a *app) startConnectionTest(w http.ResponseWriter, r *http.Request) {
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
+	id,err:=strconv.ParseInt(r.PathValue("id"),10,64)
+	if err!=nil { writeJSON(w,http.StatusBadRequest,map[string]string{"error":"invalid channel id"});return }
+	if !a.canAccessChannel(r.Context(),u,id) { writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"});return }
 	c, err := a.channelByID(r.Context(), r.PathValue("id"))
 	if errors.Is(err, sql.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "channel not found"})
@@ -526,7 +536,11 @@ func (a *app) startConnectionTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go a.runConnectionTest(ctx, c)
+	if strings.EqualFold(c.IngestProtocol,"rtmp") {
+		go a.runRTMPConnectionTest(ctx,c)
+	} else {
+		go a.runConnectionTest(ctx,c)
+	}
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"channel_id":       c.ID,
@@ -537,11 +551,14 @@ func (a *app) startConnectionTest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) cancelConnectionTest(w http.ResponseWriter, r *http.Request) {
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid channel id"})
 		return
 	}
+	if !a.canAccessChannel(r.Context(),u,id) { writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"});return }
 	if !a.tests.cancel(id) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no connection test running"})
 		return
@@ -549,6 +566,46 @@ func (a *app) cancelConnectionTest(w http.ResponseWriter, r *http.Request) {
 	_, _ = a.db.ExecContext(r.Context(),
 		`UPDATE channels SET status='offline', updated_at=now() WHERE id=$1`, id)
 	writeJSON(w, http.StatusOK, map[string]any{"channel_id": id, "status": "offline"})
+}
+
+func (a *app) runRTMPConnectionTest(ctx context.Context, c channel) {
+	defer a.tests.done(c.ID)
+	deadline:=time.NewTimer(a.testFor)
+	defer deadline.Stop()
+	ticker:=time.NewTicker(a.sampleFor)
+	defer ticker.Stop()
+	seen:=false
+
+	check:=func() {
+		pollCtx,cancel:=context.WithTimeout(ctx,5*time.Second)
+		defer cancel()
+		publishers,err:=a.core.rtmp(pollCtx)
+		if err!=nil { log.Printf("channel %d RTMP telemetry poll failed: %v",c.ID,err);return }
+		if findRTMPPublisher(publishers,c.IngestApp,c.StreamKey) { seen=true }
+	}
+	check()
+
+	for {
+		select {
+		case <-ctx.Done():
+			_,_=a.db.ExecContext(context.Background(),"UPDATE channels SET status='offline',updated_at=now() WHERE id=$1",c.ID)
+			return
+		case <-ticker.C:
+			check()
+		case <-deadline.C:
+			check()
+			status:="degraded"
+			code:="rtmp_test_failed"
+			severity:="warning"
+			message:="RTMP test did not detect a publisher using the current stream key"
+			if seen {
+				status="ready";code="rtmp_test_passed";severity="info";message="RTMP publisher detected using the current stream key"
+			}
+			_,_=a.db.ExecContext(context.Background(),"UPDATE channels SET status=$1,last_test_at=now(),updated_at=now() WHERE id=$2",status,c.ID)
+			_=a.recordIncident(context.Background(),c.ID,0,severity,code,message)
+			return
+		}
+	}
 }
 
 func (a *app) runConnectionTest(ctx context.Context, c channel) {
@@ -685,11 +742,14 @@ func (a *app) finishConnectionTest(c channel, samples []telemetrySample, reconne
 }
 
 func (a *app) latestRecommendation(w http.ResponseWriter, r *http.Request) {
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid channel id"})
 		return
 	}
+	if !a.canAccessChannel(r.Context(),u,id) { writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"});return }
 	var rec recommendation
 	var reasons []byte
 	err = a.db.QueryRowContext(r.Context(), `
