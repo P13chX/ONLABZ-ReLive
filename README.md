@@ -29,6 +29,11 @@ Active development is merged progressively into branch `2.x`; feature branches a
 
 ### Implemented
 
+- Real monitor-only input preview via Core memfs HLS
+- Browser Web Audio dBFS meter from the actual preview audio
+- Live source codec / resolution / FPS / bitrate panel
+- Super Administrator operations screens: Owners / Users / Channels / System Health
+- RBAC-protected preview manifests and HLS segments
 - Three-tier access control: user / administrator / super administrator
 - Session-based login and server-side channel ownership enforcement
 - RTMP-first ingest with random per-channel stream keys
@@ -556,3 +561,12 @@ Role summary:
 Bootstrap credentials are supplied only through environment variables; no default super-admin password is stored in the repository.
 
 See [docs/RBAC_RTMP.md](docs/RBAC_RTMP.md).
+
+
+## Operations UI
+
+ReLive v0.8 adds a real input preview and global Super Administrator operations workspace.
+
+Preview is isolated from the production relay path and uses stream-copy HLS in Core memory storage. Audio metering happens in the technician browser via Web Audio API.
+
+See [docs/OPERATIONS_UI.md](docs/OPERATIONS_UI.md).
