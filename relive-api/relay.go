@@ -21,6 +21,9 @@ type relayManager struct {
 	srtToken string
 	srtPassphrase string
 	srtPBKeyLen int
+	rtmpHost string
+	rtmpPort int
+	rtmpToken string
 }
 
 type relayDestination struct {
@@ -38,6 +41,9 @@ type relayDestination struct {
 	Status          string
 	CoreProcessID   string
 	StreamID        string
+	IngestProtocol  string
+	IngestApp       string
+	ChannelStreamKey string
 	CurrentAudio    string
 	CurrentQuality  string
 	LastError       string
@@ -57,6 +63,8 @@ func newRelayManager(a *app) *relayManager {
 	if err != nil || (pbkeylen != 16 && pbkeylen != 24 && pbkeylen != 32) {
 		pbkeylen = 16
 	}
+	rtmpPort,err:=strconv.Atoi(env("RELIVE_INTERNAL_RTMP_PORT","1935"))
+	if err!=nil || rtmpPort<1 || rtmpPort>65535 { rtmpPort=1935 }
 	return &relayManager{
 		app:           a,
 		interval:      envDuration("RELIVE_RELAY_POLL_INTERVAL", 2*time.Second),
@@ -65,6 +73,9 @@ func newRelayManager(a *app) *relayManager {
 		srtToken:      env("RELIVE_INTERNAL_SRT_TOKEN", ""),
 		srtPassphrase: env("RELIVE_INTERNAL_SRT_PASSPHRASE", ""),
 		srtPBKeyLen:   pbkeylen,
+		rtmpHost:      env("RELIVE_INTERNAL_RTMP_HOST","restreamer"),
+		rtmpPort:      rtmpPort,
+		rtmpToken:     env("RELIVE_INTERNAL_RTMP_TOKEN",""),
 	}
 }
 
@@ -86,6 +97,7 @@ func (m *relayManager) reconcile(ctx context.Context) {
 	rows, err := m.app.db.QueryContext(ctx, `
 		SELECT d.id,d.channel_id,d.owner_id,d.name,d.platform,d.key_source,d.server_url,d.stream_key,
 			d.generator_ref,d.enabled,d.desired_state,d.status,d.core_process_id,c.stream_id,
+			c.ingest_protocol,c.ingest_app,c.stream_key,
 			d.audio_status,d.quality_status,d.last_error,d.reconnect_count
 		FROM destinations d
 		JOIN channels c ON c.id=d.channel_id
@@ -102,7 +114,8 @@ func (m *relayManager) reconcile(ctx context.Context) {
 		var d relayDestination
 		if err := rows.Scan(&d.ID,&d.ChannelID,&d.OwnerID,&d.Name,&d.Platform,&d.KeySource,&d.ServerURL,
 			&d.StreamKey,&d.GeneratorRef,&d.Enabled,&d.DesiredState,&d.Status,&d.CoreProcessID,
-			&d.StreamID,&d.CurrentAudio,&d.CurrentQuality,&d.LastError,&d.ReconnectCount); err != nil {
+			&d.StreamID,&d.IngestProtocol,&d.IngestApp,&d.ChannelStreamKey,
+			&d.CurrentAudio,&d.CurrentQuality,&d.LastError,&d.ReconnectCount); err != nil {
 			log.Printf("relay manager scan failed: %v", err)
 			return
 		}
@@ -136,7 +149,12 @@ func (m *relayManager) reconcileDestination(ctx context.Context, d relayDestinat
 			return m.updateRuntime(ctx,d,"failed","",0,0,0,0,"unknown",d.ReconnectCount,"destination server URL is empty")
 		}
 
-		source := internalSRTSourceURL(m.srtHost,m.srtPort,d.StreamID,m.srtToken,m.srtPassphrase,m.srtPBKeyLen)
+		var source string
+		if strings.EqualFold(d.IngestProtocol,"rtmp") {
+			source=internalRTMPSourceURL(m.rtmpHost,m.rtmpPort,d.IngestApp,d.ChannelStreamKey,m.rtmpToken)
+		} else {
+			source=internalSRTSourceURL(m.srtHost,m.srtPort,d.StreamID,m.srtToken,m.srtPassphrase,m.srtPBKeyLen)
+		}
 		output := destinationOutputURL(d.ServerURL,d.StreamKey)
 		cfg := coreProcessConfig{
 			Type:"ffmpeg",
@@ -285,6 +303,8 @@ func sanitizeRelayError(msg string, d relayDestination) string {
 }
 
 func (a *app) destinationCommand(w http.ResponseWriter, r *http.Request) {
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
 	id,err := strconv.ParseInt(r.PathValue("id"),10,64)
 	if err!=nil {
 		writeJSON(w,http.StatusBadRequest,map[string]string{"error":"invalid destination id"})
@@ -298,12 +318,14 @@ func (a *app) destinationCommand(w http.ResponseWriter, r *http.Request) {
 	in.Command=strings.ToLower(strings.TrimSpace(in.Command))
 
 	var processID string
-	err=a.db.QueryRowContext(r.Context(),`SELECT core_process_id FROM destinations WHERE id=$1`,id).Scan(&processID)
+	var channelID int64
+	err=a.db.QueryRowContext(r.Context(),`SELECT core_process_id,channel_id FROM destinations WHERE id=$1`,id).Scan(&processID,&channelID)
 	if errors.Is(err,sql.ErrNoRows) {
 		writeJSON(w,http.StatusNotFound,map[string]string{"error":"destination not found"})
 		return
 	}
 	if err!=nil { serverError(w,err);return }
+	if !a.canAccessChannel(r.Context(),u,channelID) { writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"});return }
 
 	switch in.Command {
 	case "start":
@@ -350,11 +372,14 @@ func (a *app) recordIncident(ctx context.Context, channelID,destinationID int64,
 }
 
 func (a *app) listIncidents(w http.ResponseWriter,r *http.Request) {
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
 	channelID,err:=strconv.ParseInt(r.URL.Query().Get("channel_id"),10,64)
 	if err!=nil || channelID<=0 {
 		writeJSON(w,http.StatusBadRequest,map[string]string{"error":"channel_id is required"})
 		return
 	}
+	if !a.canAccessChannel(r.Context(),u,channelID) { writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"});return }
 	limit:=100
 	if raw:=r.URL.Query().Get("limit");raw!="" {
 		if n,e:=strconv.Atoi(raw);e==nil && n>0 && n<=500 { limit=n }

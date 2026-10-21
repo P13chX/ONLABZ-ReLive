@@ -63,6 +63,8 @@ func (a *app) destinationPlatforms(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) createDestination(w http.ResponseWriter, r *http.Request) {
+	actor,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
 	var d destination
 	if err := decodeJSON(r, &d); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -75,8 +77,12 @@ func (a *app) createDestination(w http.ResponseWriter, r *http.Request) {
 	d.ServerURL = strings.TrimSpace(d.ServerURL)
 	d.GeneratorRef = strings.TrimSpace(d.GeneratorRef)
 
-	if d.ChannelID <= 0 || d.OwnerID == "" || d.Name == "" || d.Platform == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "channel_id, owner_id, name and platform are required"})
+	if d.ChannelID <= 0 || d.Name == "" || d.Platform == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "channel_id, name and platform are required"})
+		return
+	}
+	if !a.canAccessChannel(r.Context(),actor,d.ChannelID) {
+		writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"})
 		return
 	}
 
@@ -85,10 +91,7 @@ func (a *app) createDestination(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "channel not found"})
 		return
 	}
-	if channelOwner != d.OwnerID {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "destination owner_id must match channel owner_id"})
-		return
-	}
+	d.OwnerID=channelOwner
 	if d.KeySource == "" {
 		d.KeySource = "manual_key"
 	}
@@ -177,31 +180,38 @@ func (a *app) createDestination(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) listDestinations(w http.ResponseWriter, r *http.Request) {
-	owner := strings.TrimSpace(r.URL.Query().Get("owner_id"))
-	q := `SELECT id,COALESCE(channel_id,0),owner_id,name,platform,key_source,server_url,generator_ref,enabled,desired_state,created_at,updated_at FROM destinations`
-	args := []any{}
-	if owner != "" {
-		q += " WHERE owner_id=$1"
-		args = append(args, owner)
-	}
-	q += " ORDER BY name"
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
 
-	rows, err := a.db.QueryContext(r.Context(), q, args...)
-	if err != nil {
-		serverError(w, err)
-		return
+	q := "SELECT d.id,COALESCE(d.channel_id,0),d.owner_id,d.name,d.platform,d.key_source,d.server_url,d.generator_ref,d.enabled,d.desired_state,d.created_at,d.updated_at FROM destinations d"
+	args:=[]any{}
+	switch u.Role {
+	case roleSuperAdministrator:
+		if owner:=strings.TrimSpace(r.URL.Query().Get("owner_id"));owner!="" {
+			q += " WHERE d.owner_id=$1"
+			args=append(args,owner)
+		}
+	case roleAdministrator:
+		q += " WHERE d.owner_id=$1"
+		args=append(args,u.OwnerID)
+	default:
+		q += " JOIN user_channels uc ON uc.channel_id=d.channel_id WHERE uc.user_id=$1"
+		args=append(args,u.ID)
 	}
+	q += " ORDER BY d.name"
+
+	rows,err:=a.db.QueryContext(r.Context(),q,args...)
+	if err!=nil { serverError(w,err);return }
 	defer rows.Close()
 
-	out := []destination{}
+	out:=[]destination{}
 	for rows.Next() {
 		var d destination
-		if err := rows.Scan(&d.ID,&d.ChannelID,&d.OwnerID,&d.Name,&d.Platform,&d.KeySource,&d.ServerURL,
-			&d.GeneratorRef,&d.Enabled,&d.DesiredState,&d.CreatedAt,&d.UpdatedAt); err != nil {
-			serverError(w, err)
-			return
+		if err:=rows.Scan(&d.ID,&d.ChannelID,&d.OwnerID,&d.Name,&d.Platform,&d.KeySource,&d.ServerURL,
+			&d.GeneratorRef,&d.Enabled,&d.DesiredState,&d.CreatedAt,&d.UpdatedAt);err!=nil {
+			serverError(w,err);return
 		}
-		out = append(out, d)
+		out=append(out,d)
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w,http.StatusOK,out)
 }

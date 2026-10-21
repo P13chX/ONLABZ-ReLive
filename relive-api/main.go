@@ -34,6 +34,10 @@ type channel struct {
 	IngestHost         string    `json:"ingest_host"`
 	IngestPort         int       `json:"ingest_port"`
 	StreamID           string    `json:"stream_id"`
+	StreamKey          string    `json:"stream_key,omitempty"`
+	StreamKeyVersion   int       `json:"stream_key_version"`
+	StreamKeyUpdatedAt *time.Time `json:"stream_key_updated_at,omitempty"`
+	IngestApp          string    `json:"ingest_app"`
 	Resolution         string    `json:"resolution"`
 	FPS                int       `json:"fps"`
 	VideoBitrateKbps   int       `json:"video_bitrate_kbps"`
@@ -95,24 +99,37 @@ func main() {
 		testFor:   envDuration("RELIVE_TEST_DURATION", 30*time.Second),
 		sampleFor: envDuration("RELIVE_SAMPLE_INTERVAL", 2*time.Second),
 	}
+	if err := a.bootstrapSuperAdmin(context.Background()); err != nil {
+		log.Fatal(err)
+	}
+
+	apiMux := http.NewServeMux()
+	apiMux.HandleFunc("GET /api/v1/auth/me", a.me)
+	apiMux.HandleFunc("POST /api/v1/auth/logout", a.logout)
+	apiMux.HandleFunc("GET /api/v1/users", a.listUsers)
+	apiMux.HandleFunc("POST /api/v1/users", a.createUser)
+	apiMux.HandleFunc("GET /api/v1/channels", a.listChannels)
+	apiMux.HandleFunc("POST /api/v1/channels", a.createChannel)
+	apiMux.HandleFunc("GET /api/v1/channels/{id}", a.getChannel)
+	apiMux.HandleFunc("POST /api/v1/channels/{id}/stream-key/reset", a.resetChannelStreamKey)
+	apiMux.HandleFunc("POST /api/v1/channels/{id}/tests", a.createTest)
+	apiMux.HandleFunc("POST /api/v1/channels/{id}/test/start", a.startConnectionTest)
+	apiMux.HandleFunc("POST /api/v1/channels/{id}/test/cancel", a.cancelConnectionTest)
+	apiMux.HandleFunc("GET /api/v1/channels/{id}/recommendation", a.latestRecommendation)
+	apiMux.HandleFunc("GET /api/v1/destination-platforms", a.destinationPlatforms)
+	apiMux.HandleFunc("GET /api/v1/destinations", a.listDestinations)
+	apiMux.HandleFunc("POST /api/v1/destinations", a.createDestination)
+	apiMux.HandleFunc("GET /api/v1/destinations/runtime", a.listDestinationRuntime)
+	apiMux.HandleFunc("POST /api/v1/destinations/{id}/runtime", a.updateDestinationRuntime)
+	apiMux.HandleFunc("POST /api/v1/destinations/{id}/command", a.destinationCommand)
+	apiMux.HandleFunc("GET /api/v1/channels/{id}/telemetry/live", a.channelLiveTelemetry)
+	apiMux.HandleFunc("GET /api/v1/channels/{id}/telemetry/history", a.telemetryHistory)
+	apiMux.HandleFunc("GET /api/v1/incidents", a.listIncidents)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", a.health)
-	mux.HandleFunc("GET /api/v1/channels", a.listChannels)
-	mux.HandleFunc("POST /api/v1/channels", a.createChannel)
-	mux.HandleFunc("GET /api/v1/channels/{id}", a.getChannel)
-	mux.HandleFunc("POST /api/v1/channels/{id}/tests", a.createTest)
-	mux.HandleFunc("POST /api/v1/channels/{id}/test/start", a.startConnectionTest)
-	mux.HandleFunc("POST /api/v1/channels/{id}/test/cancel", a.cancelConnectionTest)
-	mux.HandleFunc("GET /api/v1/channels/{id}/recommendation", a.latestRecommendation)
-	mux.HandleFunc("GET /api/v1/destination-platforms", a.destinationPlatforms)
-	mux.HandleFunc("GET /api/v1/destinations", a.listDestinations)
-	mux.HandleFunc("POST /api/v1/destinations", a.createDestination)
-	mux.HandleFunc("GET /api/v1/destinations/runtime", a.listDestinationRuntime)
-	mux.HandleFunc("POST /api/v1/destinations/{id}/runtime", a.updateDestinationRuntime)
-	mux.HandleFunc("POST /api/v1/destinations/{id}/command", a.destinationCommand)
-	mux.HandleFunc("GET /api/v1/channels/{id}/telemetry/live", a.channelLiveTelemetry)
-	mux.HandleFunc("GET /api/v1/channels/{id}/telemetry/history", a.telemetryHistory)
-	mux.HandleFunc("GET /api/v1/incidents", a.listIncidents)
+	mux.HandleFunc("POST /api/v1/auth/login", a.login)
+	mux.Handle("/api/v1/", a.authMiddleware(apiMux))
 
 	runtimeCtx, runtimeCancel := context.WithCancel(context.Background())
 	defer runtimeCancel()
@@ -171,10 +188,14 @@ CREATE TABLE IF NOT EXISTS channels (
 	id BIGSERIAL PRIMARY KEY,
 	owner_id TEXT NOT NULL,
 	name TEXT NOT NULL,
-	ingest_protocol TEXT NOT NULL DEFAULT 'srt',
+	ingest_protocol TEXT NOT NULL DEFAULT 'rtmp',
 	ingest_host TEXT NOT NULL,
-	ingest_port INTEGER NOT NULL,
+	ingest_port INTEGER NOT NULL DEFAULT 1935,
+	ingest_app TEXT NOT NULL DEFAULT '/live',
 	stream_id TEXT NOT NULL UNIQUE,
+	stream_key TEXT NOT NULL DEFAULT '',
+	stream_key_version INTEGER NOT NULL DEFAULT 1,
+	stream_key_updated_at TIMESTAMPTZ,
 	resolution TEXT NOT NULL DEFAULT '1920x1080',
 	fps INTEGER NOT NULL DEFAULT 50,
 	video_bitrate_kbps INTEGER NOT NULL DEFAULT 5500,
@@ -292,6 +313,42 @@ CREATE TABLE IF NOT EXISTS incident_events (
 
 CREATE INDEX IF NOT EXISTS idx_incident_events_channel_time
 ON incident_events(channel_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS users (
+	id BIGSERIAL PRIMARY KEY,
+	email TEXT NOT NULL UNIQUE,
+	display_name TEXT NOT NULL DEFAULT '',
+	owner_id TEXT NOT NULL,
+	role TEXT NOT NULL CHECK (role IN ('user','administrator','super_administrator')),
+	password_salt TEXT NOT NULL,
+	password_hash TEXT NOT NULL,
+	active BOOLEAN NOT NULL DEFAULT true,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_owner ON users(owner_id);
+
+CREATE TABLE IF NOT EXISTS user_channels (
+	user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	channel_id BIGINT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+	PRIMARY KEY(user_id,channel_id)
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+	token_hash TEXT PRIMARY KEY,
+	user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	expires_at TIMESTAMPTZ NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+ALTER TABLE channels ADD COLUMN IF NOT EXISTS ingest_app TEXT NOT NULL DEFAULT '/live';
+ALTER TABLE channels ADD COLUMN IF NOT EXISTS stream_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE channels ADD COLUMN IF NOT EXISTS stream_key_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE channels ADD COLUMN IF NOT EXISTS stream_key_updated_at TIMESTAMPTZ;
 `
 	_, err := db.ExecContext(ctx, schema)
 	return err
@@ -306,84 +363,108 @@ func (a *app) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) listChannels(w http.ResponseWriter, r *http.Request) {
-	owner := strings.TrimSpace(r.URL.Query().Get("owner_id"))
-	q := `SELECT id, owner_id, name, ingest_protocol, ingest_host, ingest_port, stream_id,
-		resolution, fps, video_bitrate_kbps, audio_bitrate_kbps, srt_latency_ms, status,
-		last_test_at, last_live_at, created_at, updated_at FROM channels`
-	args := []any{}
-	if owner != "" {
-		q += " WHERE owner_id=$1"
-		args = append(args, owner)
-	}
-	q += " ORDER BY name"
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
 
-	rows, err := a.db.QueryContext(r.Context(), q, args...)
-	if err != nil {
-		serverError(w, err)
-		return
+	q := "SELECT c.id,c.owner_id,c.name,c.ingest_protocol,c.ingest_host,c.ingest_port,c.ingest_app,c.stream_id,c.stream_key,c.stream_key_version,c.stream_key_updated_at,c.resolution,c.fps,c.video_bitrate_kbps,c.audio_bitrate_kbps,c.srt_latency_ms,c.status,c.last_test_at,c.last_live_at,c.created_at,c.updated_at FROM channels c"
+	args:=[]any{}
+
+	switch u.Role {
+	case roleSuperAdministrator:
+		if owner:=strings.TrimSpace(r.URL.Query().Get("owner_id"));owner!="" {
+			q += " WHERE c.owner_id=$1"
+			args=append(args,owner)
+		}
+	case roleAdministrator:
+		q += " WHERE c.owner_id=$1"
+		args=append(args,u.OwnerID)
+	default:
+		q += " JOIN user_channels uc ON uc.channel_id=c.id WHERE uc.user_id=$1"
+		args=append(args,u.ID)
 	}
+	q += " ORDER BY c.name"
+
+	rows,err:=a.db.QueryContext(r.Context(),q,args...)
+	if err!=nil { serverError(w,err);return }
 	defer rows.Close()
 
-	out := []channel{}
+	out:=[]channel{}
 	for rows.Next() {
-		var c channel
-		if err := rows.Scan(&c.ID, &c.OwnerID, &c.Name, &c.IngestProtocol, &c.IngestHost, &c.IngestPort,
-			&c.StreamID, &c.Resolution, &c.FPS, &c.VideoBitrateKbps, &c.AudioBitrateKbps,
-			&c.SRTLatencyMs, &c.Status, &c.LastTestAt, &c.LastLiveAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
-			serverError(w, err)
-			return
-		}
-		out = append(out, c)
+		var ch channel
+		if err:=rows.Scan(&ch.ID,&ch.OwnerID,&ch.Name,&ch.IngestProtocol,&ch.IngestHost,&ch.IngestPort,&ch.IngestApp,
+			&ch.StreamID,&ch.StreamKey,&ch.StreamKeyVersion,&ch.StreamKeyUpdatedAt,&ch.Resolution,&ch.FPS,
+			&ch.VideoBitrateKbps,&ch.AudioBitrateKbps,&ch.SRTLatencyMs,&ch.Status,&ch.LastTestAt,&ch.LastLiveAt,
+			&ch.CreatedAt,&ch.UpdatedAt);err!=nil { serverError(w,err);return }
+		out=append(out,ch)
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w,http.StatusOK,out)
 }
 
 func (a *app) createChannel(w http.ResponseWriter, r *http.Request) {
-	var c channel
-	if err := decodeJSON(r, &c); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	if c.OwnerID == "" || c.Name == "" || c.IngestHost == "" || c.StreamID == "" || c.IngestPort == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "owner_id, name, ingest_host, ingest_port and stream_id are required"})
-		return
-	}
-	if c.IngestProtocol == "" { c.IngestProtocol = "srt" }
-	if c.Resolution == "" { c.Resolution = "1920x1080" }
-	if c.FPS == 0 { c.FPS = 50 }
-	if c.VideoBitrateKbps == 0 { c.VideoBitrateKbps = 5500 }
-	if c.AudioBitrateKbps == 0 { c.AudioBitrateKbps = 192 }
-	if c.SRTLatencyMs == 0 { c.SRTLatencyMs = 750 }
+	actor,ok:=a.requireRole(r,roleAdministrator)
+	if !ok { writeJSON(w,http.StatusForbidden,map[string]string{"error":"administrator role required"});return }
 
-	err := a.db.QueryRowContext(r.Context(), `
-		INSERT INTO channels(owner_id,name,ingest_protocol,ingest_host,ingest_port,stream_id,resolution,fps,
-			video_bitrate_kbps,audio_bitrate_kbps,srt_latency_ms)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-		RETURNING id,status,created_at,updated_at`,
-		c.OwnerID,c.Name,c.IngestProtocol,c.IngestHost,c.IngestPort,c.StreamID,c.Resolution,c.FPS,
-		c.VideoBitrateKbps,c.AudioBitrateKbps,c.SRTLatencyMs,
-	).Scan(&c.ID,&c.Status,&c.CreatedAt,&c.UpdatedAt)
-	if err != nil {
-		serverError(w, err)
-		return
+	var ch channel
+	if err:=decodeJSON(r,&ch);err!=nil { writeJSON(w,http.StatusBadRequest,map[string]string{"error":err.Error()});return }
+	ch.Name=strings.TrimSpace(ch.Name)
+	if ch.Name=="" { writeJSON(w,http.StatusBadRequest,map[string]string{"error":"name is required"});return }
+
+	if actor.Role!=roleSuperAdministrator {
+		ch.OwnerID=actor.OwnerID
+	} else if strings.TrimSpace(ch.OwnerID)=="" {
+		writeJSON(w,http.StatusBadRequest,map[string]string{"error":"owner_id is required for super administrator"});return
 	}
-	writeJSON(w, http.StatusCreated, c)
+
+	if ch.IngestProtocol=="" { ch.IngestProtocol="rtmp" }
+	ch.IngestProtocol=strings.ToLower(ch.IngestProtocol)
+	if ch.IngestProtocol!="rtmp" && ch.IngestProtocol!="srt" {
+		writeJSON(w,http.StatusBadRequest,map[string]string{"error":"ingest_protocol must be rtmp or srt"});return
+	}
+	if ch.IngestHost=="" { ch.IngestHost=env("RELIVE_PUBLIC_INGEST_HOST","localhost") }
+	if ch.IngestPort==0 {
+		if ch.IngestProtocol=="rtmp" { ch.IngestPort=1935 } else { ch.IngestPort=6000 }
+	}
+	if ch.IngestApp=="" { ch.IngestApp="/live" }
+	ch.IngestApp=normalizeIngestApp(ch.IngestApp)
+	if ch.StreamID=="" {
+		v,err:=generateStreamID();if err!=nil { serverError(w,err);return };ch.StreamID=v
+	}
+	if ch.StreamKey=="" {
+		v,err:=generateStreamKey();if err!=nil { serverError(w,err);return };ch.StreamKey=v
+	}
+	if ch.Resolution=="" { ch.Resolution="1920x1080" }
+	if ch.FPS==0 { ch.FPS=50 }
+	if ch.VideoBitrateKbps==0 { ch.VideoBitrateKbps=6000 }
+	if ch.AudioBitrateKbps==0 { ch.AudioBitrateKbps=192 }
+	if ch.SRTLatencyMs==0 { ch.SRTLatencyMs=750 }
+
+	err:=a.db.QueryRowContext(r.Context(),
+		"INSERT INTO channels(owner_id,name,ingest_protocol,ingest_host,ingest_port,ingest_app,stream_id,stream_key,stream_key_version,stream_key_updated_at,resolution,fps,video_bitrate_kbps,audio_bitrate_kbps,srt_latency_ms) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,now(),$9,$10,$11,$12,$13) RETURNING id,status,stream_key_version,stream_key_updated_at,created_at,updated_at",
+		ch.OwnerID,ch.Name,ch.IngestProtocol,ch.IngestHost,ch.IngestPort,ch.IngestApp,ch.StreamID,ch.StreamKey,
+		ch.Resolution,ch.FPS,ch.VideoBitrateKbps,ch.AudioBitrateKbps,ch.SRTLatencyMs).
+		Scan(&ch.ID,&ch.Status,&ch.StreamKeyVersion,&ch.StreamKeyUpdatedAt,&ch.CreatedAt,&ch.UpdatedAt)
+	if err!=nil { serverError(w,err);return }
+	writeJSON(w,http.StatusCreated,ch)
 }
 
 func (a *app) getChannel(w http.ResponseWriter, r *http.Request) {
-	c, err := a.channelByID(r.Context(), r.PathValue("id"))
-	if errors.Is(err, sql.ErrNoRows) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "channel not found"})
-		return
-	}
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, c)
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
+	id,err:=strconv.ParseInt(r.PathValue("id"),10,64)
+	if err!=nil { writeJSON(w,http.StatusBadRequest,map[string]string{"error":"invalid channel id"});return }
+	if !a.canAccessChannel(r.Context(),u,id) { writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"});return }
+	ch,err:=a.channelByID(r.Context(),r.PathValue("id"))
+	if errors.Is(err,sql.ErrNoRows) { writeJSON(w,http.StatusNotFound,map[string]string{"error":"channel not found"});return }
+	if err!=nil { serverError(w,err);return }
+	writeJSON(w,http.StatusOK,ch)
 }
 
 func (a *app) createTest(w http.ResponseWriter, r *http.Request) {
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
+	id,err:=strconv.ParseInt(r.PathValue("id"),10,64)
+	if err!=nil { writeJSON(w,http.StatusBadRequest,map[string]string{"error":"invalid channel id"});return }
+	if !a.canAccessChannel(r.Context(),u,id) { writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"});return }
 	c, err := a.channelByID(r.Context(), r.PathValue("id"))
 	if errors.Is(err, sql.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "channel not found"})
@@ -425,6 +506,11 @@ func (a *app) createTest(w http.ResponseWriter, r *http.Request) {
 
 
 func (a *app) startConnectionTest(w http.ResponseWriter, r *http.Request) {
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
+	id,err:=strconv.ParseInt(r.PathValue("id"),10,64)
+	if err!=nil { writeJSON(w,http.StatusBadRequest,map[string]string{"error":"invalid channel id"});return }
+	if !a.canAccessChannel(r.Context(),u,id) { writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"});return }
 	c, err := a.channelByID(r.Context(), r.PathValue("id"))
 	if errors.Is(err, sql.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "channel not found"})
@@ -450,7 +536,11 @@ func (a *app) startConnectionTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go a.runConnectionTest(ctx, c)
+	if strings.EqualFold(c.IngestProtocol,"rtmp") {
+		go a.runRTMPConnectionTest(ctx,c)
+	} else {
+		go a.runConnectionTest(ctx,c)
+	}
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"channel_id":       c.ID,
@@ -461,11 +551,14 @@ func (a *app) startConnectionTest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) cancelConnectionTest(w http.ResponseWriter, r *http.Request) {
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid channel id"})
 		return
 	}
+	if !a.canAccessChannel(r.Context(),u,id) { writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"});return }
 	if !a.tests.cancel(id) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no connection test running"})
 		return
@@ -473,6 +566,46 @@ func (a *app) cancelConnectionTest(w http.ResponseWriter, r *http.Request) {
 	_, _ = a.db.ExecContext(r.Context(),
 		`UPDATE channels SET status='offline', updated_at=now() WHERE id=$1`, id)
 	writeJSON(w, http.StatusOK, map[string]any{"channel_id": id, "status": "offline"})
+}
+
+func (a *app) runRTMPConnectionTest(ctx context.Context, c channel) {
+	defer a.tests.done(c.ID)
+	deadline:=time.NewTimer(a.testFor)
+	defer deadline.Stop()
+	ticker:=time.NewTicker(a.sampleFor)
+	defer ticker.Stop()
+	seen:=false
+
+	check:=func() {
+		pollCtx,cancel:=context.WithTimeout(ctx,5*time.Second)
+		defer cancel()
+		publishers,err:=a.core.rtmp(pollCtx)
+		if err!=nil { log.Printf("channel %d RTMP telemetry poll failed: %v",c.ID,err);return }
+		if findRTMPPublisher(publishers,c.IngestApp,c.StreamKey) { seen=true }
+	}
+	check()
+
+	for {
+		select {
+		case <-ctx.Done():
+			_,_=a.db.ExecContext(context.Background(),"UPDATE channels SET status='offline',updated_at=now() WHERE id=$1",c.ID)
+			return
+		case <-ticker.C:
+			check()
+		case <-deadline.C:
+			check()
+			status:="degraded"
+			code:="rtmp_test_failed"
+			severity:="warning"
+			message:="RTMP test did not detect a publisher using the current stream key"
+			if seen {
+				status="ready";code="rtmp_test_passed";severity="info";message="RTMP publisher detected using the current stream key"
+			}
+			_,_=a.db.ExecContext(context.Background(),"UPDATE channels SET status=$1,last_test_at=now(),updated_at=now() WHERE id=$2",status,c.ID)
+			_=a.recordIncident(context.Background(),c.ID,0,severity,code,message)
+			return
+		}
+	}
 }
 
 func (a *app) runConnectionTest(ctx context.Context, c channel) {
@@ -609,11 +742,14 @@ func (a *app) finishConnectionTest(c channel, samples []telemetrySample, reconne
 }
 
 func (a *app) latestRecommendation(w http.ResponseWriter, r *http.Request) {
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid channel id"})
 		return
 	}
+	if !a.canAccessChannel(r.Context(),u,id) { writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"});return }
 	var rec recommendation
 	var reasons []byte
 	err = a.db.QueryRowContext(r.Context(), `
@@ -639,12 +775,12 @@ func (a *app) channelByID(ctx context.Context, raw string) (channel, error) {
 	id, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil { return channel{}, err }
 	var c channel
-	err = a.db.QueryRowContext(ctx, `SELECT id,owner_id,name,ingest_protocol,ingest_host,ingest_port,stream_id,
-		resolution,fps,video_bitrate_kbps,audio_bitrate_kbps,srt_latency_ms,status,last_test_at,last_live_at,
-		created_at,updated_at FROM channels WHERE id=$1`, id).
-		Scan(&c.ID,&c.OwnerID,&c.Name,&c.IngestProtocol,&c.IngestHost,&c.IngestPort,&c.StreamID,
-			&c.Resolution,&c.FPS,&c.VideoBitrateKbps,&c.AudioBitrateKbps,&c.SRTLatencyMs,&c.Status,
-			&c.LastTestAt,&c.LastLiveAt,&c.CreatedAt,&c.UpdatedAt)
+	err = a.db.QueryRowContext(ctx, `SELECT id,owner_id,name,ingest_protocol,ingest_host,ingest_port,ingest_app,stream_id,
+		stream_key,stream_key_version,stream_key_updated_at,resolution,fps,video_bitrate_kbps,audio_bitrate_kbps,
+		srt_latency_ms,status,last_test_at,last_live_at,created_at,updated_at FROM channels WHERE id=$1`, id).
+		Scan(&c.ID,&c.OwnerID,&c.Name,&c.IngestProtocol,&c.IngestHost,&c.IngestPort,&c.IngestApp,&c.StreamID,
+			&c.StreamKey,&c.StreamKeyVersion,&c.StreamKeyUpdatedAt,&c.Resolution,&c.FPS,&c.VideoBitrateKbps,
+			&c.AudioBitrateKbps,&c.SRTLatencyMs,&c.Status,&c.LastTestAt,&c.LastLiveAt,&c.CreatedAt,&c.UpdatedAt)
 	return c, err
 }
 
