@@ -71,6 +71,14 @@ func (a *app) resetChannelStreamKey(w http.ResponseWriter,r *http.Request) {
 		_,_ = a.db.ExecContext(r.Context(),
 			"UPDATE destinations SET core_process_id='',status=CASE WHEN desired_state='running' THEN 'reconnecting' ELSE 'idle' END,last_error='',updated_at=now() WHERE channel_id=$1",id)
 	}
+	var previewPID string
+	_ = a.db.QueryRowContext(r.Context(),"SELECT COALESCE(preview_process_id,'') FROM channels WHERE id=$1",id).Scan(&previewPID)
+	if previewPID!="" {
+		ctx,cancel:=context.WithTimeout(r.Context(),5*time.Second)
+		_ = a.core.deleteProcess(ctx,previewPID)
+		cancel()
+		_,_ = a.db.ExecContext(r.Context(),"UPDATE channels SET preview_process_id='' WHERE id=$1",id)
+	}
 	_ = a.recordIncident(r.Context(),id,0,"warning","stream_key_rotated",
 		fmt.Sprintf("RTMP stream key rotated to version %d by %s; relay workers will reconnect using the new key",version,u.Email))
 	writeJSON(w,http.StatusOK,map[string]any{
