@@ -57,3 +57,26 @@ func TestInternalRTMPSourceURL(t *testing.T) {
 		t.Fatalf("unexpected RTMP source URL: %s",got)
 	}
 }
+
+
+func TestPreviewNamesAndAuthorizationPattern(t *testing.T) {
+	if got:=previewManifestName(42);got!="relive-preview-42.m3u8" {
+		t.Fatalf("unexpected manifest name: %s",got)
+	}
+	for _,path:=range []string{
+		"/preview/relive-preview-42.m3u8",
+		"/preview/relive-preview-42_000001.ts",
+	} {
+		m:=previewChannelPattern.FindStringSubmatch(path)
+		if len(m)!=2 || m[1]!="42" {
+			t.Fatalf("preview channel pattern failed for %s: %v",path,m)
+		}
+	}
+}
+
+func TestPreviewSegmentPattern(t *testing.T) {
+	got:=previewSegmentPattern(7)
+	if got!="{memfs}/relive-preview-7_%06d.ts" {
+		t.Fatalf("unexpected segment pattern: %s",got)
+	}
+}
