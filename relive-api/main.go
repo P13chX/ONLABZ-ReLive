@@ -715,12 +715,12 @@ func (a *app) channelByID(ctx context.Context, raw string) (channel, error) {
 	id, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil { return channel{}, err }
 	var c channel
-	err = a.db.QueryRowContext(ctx, `SELECT id,owner_id,name,ingest_protocol,ingest_host,ingest_port,stream_id,
-		resolution,fps,video_bitrate_kbps,audio_bitrate_kbps,srt_latency_ms,status,last_test_at,last_live_at,
-		created_at,updated_at FROM channels WHERE id=$1`, id).
-		Scan(&c.ID,&c.OwnerID,&c.Name,&c.IngestProtocol,&c.IngestHost,&c.IngestPort,&c.StreamID,
-			&c.Resolution,&c.FPS,&c.VideoBitrateKbps,&c.AudioBitrateKbps,&c.SRTLatencyMs,&c.Status,
-			&c.LastTestAt,&c.LastLiveAt,&c.CreatedAt,&c.UpdatedAt)
+	err = a.db.QueryRowContext(ctx, `SELECT id,owner_id,name,ingest_protocol,ingest_host,ingest_port,ingest_app,stream_id,
+		stream_key,stream_key_version,stream_key_updated_at,resolution,fps,video_bitrate_kbps,audio_bitrate_kbps,
+		srt_latency_ms,status,last_test_at,last_live_at,created_at,updated_at FROM channels WHERE id=$1`, id).
+		Scan(&c.ID,&c.OwnerID,&c.Name,&c.IngestProtocol,&c.IngestHost,&c.IngestPort,&c.IngestApp,&c.StreamID,
+			&c.StreamKey,&c.StreamKeyVersion,&c.StreamKeyUpdatedAt,&c.Resolution,&c.FPS,&c.VideoBitrateKbps,
+			&c.AudioBitrateKbps,&c.SRTLatencyMs,&c.Status,&c.LastTestAt,&c.LastLiveAt,&c.CreatedAt,&c.UpdatedAt)
 	return c, err
 }
 
