@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -54,8 +55,24 @@ func (a *app) resetChannelStreamKey(w http.ResponseWriter,r *http.Request) {
 		key,id).Scan(&version,&updated)
 	if errors.Is(err,sql.ErrNoRows) { writeJSON(w,http.StatusNotFound,map[string]string{"error":"channel not found"});return }
 	if err!=nil { serverError(w,err);return }
+	rows,queryErr:=a.db.QueryContext(r.Context(),"SELECT core_process_id FROM destinations WHERE channel_id=$1 AND core_process_id<>''",id)
+	if queryErr==nil {
+		var processIDs []string
+		for rows.Next() {
+			var pid string
+			if rows.Scan(&pid)==nil && pid!="" { processIDs=append(processIDs,pid) }
+		}
+		rows.Close()
+		for _,pid:=range processIDs {
+			ctx,cancel:=context.WithTimeout(r.Context(),5*time.Second)
+			_ = a.core.deleteProcess(ctx,pid)
+			cancel()
+		}
+		_,_ = a.db.ExecContext(r.Context(),
+			"UPDATE destinations SET core_process_id='',status=CASE WHEN desired_state='running' THEN 'reconnecting' ELSE 'idle' END,last_error='',updated_at=now() WHERE channel_id=$1",id)
+	}
 	_ = a.recordIncident(r.Context(),id,0,"warning","stream_key_rotated",
-		fmt.Sprintf("RTMP stream key rotated to version %d by %s",version,u.Email))
+		fmt.Sprintf("RTMP stream key rotated to version %d by %s; relay workers will reconnect using the new key",version,u.Email))
 	writeJSON(w,http.StatusOK,map[string]any{
 		"channel_id":id,
 		"stream_key":key,
