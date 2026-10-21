@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -174,4 +175,20 @@ func envInt(key string,fallback int) int {
 	n,err:=strconv.Atoi(raw)
 	if err!=nil { return fallback }
 	return n
+}
+
+
+var previewChannelPattern = regexp.MustCompile(`relive-preview-([0-9]+)(?:[_.]|$)`)
+
+func (a *app) authorizePreview(w http.ResponseWriter,r *http.Request) {
+	u,ok:=currentUser(r.Context())
+	if !ok { http.Error(w,"unauthorized",http.StatusUnauthorized);return }
+	uri:=r.Header.Get("X-Original-URI")
+	m:=previewChannelPattern.FindStringSubmatch(uri)
+	if len(m)!=2 { http.Error(w,"invalid preview path",http.StatusBadRequest);return }
+	id,err:=strconv.ParseInt(m[1],10,64)
+	if err!=nil || !a.canAccessChannel(r.Context(),u,id) {
+		http.Error(w,"forbidden",http.StatusForbidden);return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
