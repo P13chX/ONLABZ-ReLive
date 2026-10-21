@@ -498,6 +498,10 @@ The Technician Console uses the current ONLIVEABLE visual system:
 
 See [docs/BRANDING.md](docs/BRANDING.md).
 
+# Development handoff
+
+For coding agents continuing the project, start with [docs/AGENT_HANDOFF.md](docs/AGENT_HANDOFF.md).
+
 # Development roadmap
 
 See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
