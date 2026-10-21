@@ -108,9 +108,18 @@ func main() {
 	apiMux.HandleFunc("POST /api/v1/auth/logout", a.logout)
 	apiMux.HandleFunc("GET /api/v1/users", a.listUsers)
 	apiMux.HandleFunc("POST /api/v1/users", a.createUser)
+	apiMux.HandleFunc("PATCH /api/v1/users/{id}", a.updateUser)
+	apiMux.HandleFunc("GET /api/v1/admin/owners", a.listOwners)
+	apiMux.HandleFunc("POST /api/v1/admin/owners", a.createOwner)
+	apiMux.HandleFunc("PATCH /api/v1/admin/owners/{id}", a.updateOwner)
+	apiMux.HandleFunc("GET /api/v1/admin/system-health", a.systemHealth)
 	apiMux.HandleFunc("GET /api/v1/channels", a.listChannels)
 	apiMux.HandleFunc("POST /api/v1/channels", a.createChannel)
 	apiMux.HandleFunc("GET /api/v1/channels/{id}", a.getChannel)
+	apiMux.HandleFunc("PATCH /api/v1/channels/{id}", a.updateChannel)
+	apiMux.HandleFunc("DELETE /api/v1/channels/{id}", a.deleteChannel)
+	apiMux.HandleFunc("GET /api/v1/channels/{id}/preview", a.channelPreview)
+	apiMux.HandleFunc("DELETE /api/v1/channels/{id}/preview", a.stopChannelPreview)
 	apiMux.HandleFunc("POST /api/v1/channels/{id}/stream-key/reset", a.resetChannelStreamKey)
 	apiMux.HandleFunc("POST /api/v1/channels/{id}/tests", a.createTest)
 	apiMux.HandleFunc("POST /api/v1/channels/{id}/test/start", a.startConnectionTest)
@@ -196,6 +205,7 @@ CREATE TABLE IF NOT EXISTS channels (
 	stream_key TEXT NOT NULL DEFAULT '',
 	stream_key_version INTEGER NOT NULL DEFAULT 1,
 	stream_key_updated_at TIMESTAMPTZ,
+	preview_process_id TEXT NOT NULL DEFAULT '',
 	resolution TEXT NOT NULL DEFAULT '1920x1080',
 	fps INTEGER NOT NULL DEFAULT 50,
 	video_bitrate_kbps INTEGER NOT NULL DEFAULT 5500,
@@ -329,6 +339,15 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX IF NOT EXISTS idx_users_owner ON users(owner_id);
 
+CREATE TABLE IF NOT EXISTS owners (
+	id BIGSERIAL PRIMARY KEY,
+	owner_key TEXT NOT NULL UNIQUE,
+	name TEXT NOT NULL,
+	active BOOLEAN NOT NULL DEFAULT true,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS user_channels (
 	user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 	channel_id BIGINT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
@@ -349,6 +368,13 @@ ALTER TABLE channels ADD COLUMN IF NOT EXISTS ingest_app TEXT NOT NULL DEFAULT '
 ALTER TABLE channels ADD COLUMN IF NOT EXISTS stream_key TEXT NOT NULL DEFAULT '';
 ALTER TABLE channels ADD COLUMN IF NOT EXISTS stream_key_version INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE channels ADD COLUMN IF NOT EXISTS stream_key_updated_at TIMESTAMPTZ;
+ALTER TABLE channels ADD COLUMN IF NOT EXISTS preview_process_id TEXT NOT NULL DEFAULT '';
+
+INSERT INTO owners(owner_key,name,active)
+SELECT owner_id,owner_id,true FROM (
+	SELECT DISTINCT owner_id FROM channels
+	UNION SELECT DISTINCT owner_id FROM users
+) x WHERE owner_id<>'' ON CONFLICT(owner_key) DO NOTHING;
 `
 	_, err := db.ExecContext(ctx, schema)
 	return err
