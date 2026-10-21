@@ -125,6 +125,17 @@ func (c *coreClient) deleteProcess(ctx context.Context, id string) error {
 	return c.doJSON(ctx, http.MethodDelete, "/api/v3/process/"+url.PathEscape(id), nil, nil)
 }
 
+func internalRTMPSourceURL(host string, port int, app, streamKey, token string) string {
+	app = normalizeIngestApp(app)
+	u := fmt.Sprintf("rtmp://%s:%d%s/%s",host,port,app,url.PathEscape(streamKey))
+	if token!="" {
+		q:=url.Values{}
+		q.Set("token",token)
+		u += "?" + q.Encode()
+	}
+	return u
+}
+
 func internalSRTSourceURL(host string, port int, streamID, token, passphrase string, pbkeylen int) string {
 	q := url.Values{}
 	q.Set("mode", "caller")
