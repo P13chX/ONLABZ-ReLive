@@ -94,7 +94,7 @@ func (a *app) ensurePreviewProcess(ctx context.Context, ch channel) (string,erro
 	created,err:=a.core.createProcess(createCtx,cfg)
 	cancel()
 	if err!=nil { return "",err }
-	if created.ID=="" { return "","Core created preview without process ID" }
+	if created.ID=="" { return "",fmt.Errorf("Core created preview without process ID") }
 	_,err=a.db.ExecContext(ctx,"UPDATE channels SET preview_process_id=$1,updated_at=now() WHERE id=$2",created.ID,ch.ID)
 	if err!=nil {
 		cleanup,cancel:=context.WithTimeout(ctx,4*time.Second)
