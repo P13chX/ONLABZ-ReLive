@@ -105,6 +105,7 @@ func main() {
 
 	apiMux := http.NewServeMux()
 	apiMux.HandleFunc("GET /api/v1/auth/me", a.me)
+	apiMux.HandleFunc("GET /api/v1/preview-auth", a.authorizePreview)
 	apiMux.HandleFunc("POST /api/v1/auth/logout", a.logout)
 	apiMux.HandleFunc("GET /api/v1/users", a.listUsers)
 	apiMux.HandleFunc("POST /api/v1/users", a.createUser)
