@@ -44,9 +44,9 @@ services:
       RELIVE_DATABASE_URL: postgres://relive:relive@postgres:5432/relive?sslmode=disable
       RELIVE_HTTP_ADDR: :8090
       RELIVE_CORE_URL: http://restreamer:8080
-      RELIVE_PUBLIC_INGEST_HOST: localhost
-      RELIVE_SUPERADMIN_EMAIL: admin@example.com
-      RELIVE_SUPERADMIN_PASSWORD: change-this-before-deploy
+      RELIVE_PUBLIC_INGEST_HOST: ${RELIVE_PUBLIC_INGEST_HOST:-localhost}
+      RELIVE_SUPERADMIN_EMAIL: ${RELIVE_SUPERADMIN_EMAIL:-}
+      RELIVE_SUPERADMIN_PASSWORD: ${RELIVE_SUPERADMIN_PASSWORD:-}
       RELIVE_INTERNAL_RTMP_HOST: restreamer
       RELIVE_INTERNAL_RTMP_PORT: "1935"
       RELIVE_INTERNAL_RTMP_TOKEN: ""
