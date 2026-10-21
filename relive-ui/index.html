@@ -4,86 +4,140 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>ONLIVEABLE ReLive — Technician Console</title>
+  <title>ONLIVEABLE ReLive</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <header class="topbar">
-    <div><div class="eyebrow">ONLIVEABLE / ONLABZ</div><h1>ReLive // Technician Console</h1></div>
-    <div class="top-actions">
-      <label class="channel-picker"><span>Channel</span><select id="channelSelect" aria-label="Select channel"></select></label>
-      <button id="testBtn" class="btn primary" type="button">Test connection</button>
-      <div id="clock" class="clock">--:--:--</div>
-    </div>
-  </header>
+  <div id="loginScreen" class="login-screen">
+    <form id="loginForm" class="login-card">
+      <div class="eyebrow">ONLIVEABLE / ONLABZ</div>
+      <h1>ReLive</h1>
+      <p class="muted">Streaming contribution & destination control</p>
+      <label>Email<input id="loginEmail" type="email" autocomplete="username" required></label>
+      <label>Password<input id="loginPassword" type="password" autocomplete="current-password" required></label>
+      <button class="btn primary wide" type="submit">Sign in</button>
+      <div id="loginError" class="login-error"></div>
+    </form>
+  </div>
 
-  <main class="layout">
-    <section id="incidentPanel" class="incident-panel hidden" aria-live="polite">
-      <div><div class="incident-title">Attention required</div><div id="incidentText" class="incident-text"></div></div>
-      <div id="incidentCount" class="incident-count">0</div>
-    </section>
+  <div id="shell" class="shell hidden">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-main">ONLIVEABLE</div>
+        <div class="brand-sub">ONLABZ / ReLive</div>
+      </div>
+      <nav>
+        <button class="nav-item active" data-section="overview">Overview</button>
+        <button class="nav-item advanced-only" data-section="destinations">Destinations</button>
+        <button class="nav-item advanced-only" data-section="incidents">Incidents</button>
+        <button class="nav-item admin-only" data-section="users">Users</button>
+        <button class="nav-item super-only" data-section="system">System</button>
+      </nav>
+      <div class="sidebar-foot">
+        <div id="roleBadge" class="role-badge">USER</div>
+        <div id="userName" class="user-name">—</div>
+        <button id="logoutBtn" class="btn mini">Sign out</button>
+      </div>
+    </aside>
 
-    <section class="status-strip">
-      <article class="stat-card"><div class="stat-label">Input</div><div class="stat-line"><span id="inputDot" class="dot unknown"></span><strong id="inputStatus">UNKNOWN</strong></div><div id="inputMeta" class="muted">Waiting for telemetry</div></article>
-      <article class="stat-card"><div class="stat-label">RTT</div><div class="metric"><span id="rttValue">—</span><small>ms</small></div><div class="muted">SRT round trip</div></article>
-      <article class="stat-card"><div class="stat-label">Link estimate</div><div class="metric"><span id="bwValue">—</span><small>Mbps</small></div><div id="headroomHint" class="muted">Receive — Mbps</div></article>
-      <article class="stat-card"><div class="stat-label">SRT latency</div><div class="metric"><span id="latencyValue">—</span><small>ms</small></div><div id="bufferHint" class="muted">Receive buffer — ms</div></article>
-    </section>
+    <div class="app">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">ReLive / Control</div>
+          <h1 id="pageTitle">Overview</h1>
+        </div>
+        <div class="top-actions">
+          <label class="channel-picker"><span>Channel</span><select id="channelSelect"></select></label>
+          <button id="testBtn" class="btn advanced-only">Test connection</button>
+          <div id="clock" class="clock">--:--:--</div>
+        </div>
+      </header>
 
-    <section class="grid two">
-      <article class="panel">
-        <div class="panel-head">
-          <div><div class="eyebrow">Contribution</div><h2>Network health</h2></div>
-          <div class="panel-tools">
-            <label class="compact-select">History
-              <select id="historyRange"><option value="5">5 min</option><option value="15" selected>15 min</option><option value="60">1 hour</option></select>
-            </label>
-            <span id="sampleCount" class="badge">0 samples</span>
+      <main class="layout">
+        <section class="panel ingest-panel">
+          <div class="panel-head">
+            <div><div class="eyebrow">Input</div><h2>RTMP contribution</h2></div>
+            <div class="status-cell"><i id="inputDot" class="dot unknown"></i><span id="inputStatus">UNKNOWN</span></div>
           </div>
-        </div>
-        <div class="chart-stack">
-          <div class="chart-block"><div class="chart-head"><span>RTT</span><span id="rttRange">—</span></div><svg id="rttChart" class="spark" viewBox="0 0 700 150" preserveAspectRatio="none" aria-label="RTT history"></svg></div>
-          <div class="chart-block"><div class="chart-head"><span>Receive bitrate</span><span id="bwRange">—</span></div><svg id="bwChart" class="spark" viewBox="0 0 700 150" preserveAspectRatio="none" aria-label="Receive bitrate history"></svg></div>
-        </div>
-      </article>
+          <div class="ingest-grid">
+            <div class="credential-box">
+              <div class="credential-label">Server / RTMP URL</div>
+              <div class="credential-line"><code id="rtmpUrl">—</code><button class="btn mini copy-btn" data-copy="rtmpUrl">Copy</button></div>
+            </div>
+            <div class="credential-box">
+              <div class="credential-label">Stream Key <span id="keyVersion" class="muted"></span></div>
+              <div class="credential-line"><code id="streamKey">—</code><button class="btn mini copy-btn" data-copy="streamKey">Copy</button><button id="resetKeyBtn" class="btn mini danger">Reset key</button></div>
+            </div>
+          </div>
+          <div class="simple-help">OBS: Service = Custom · Server = RTMP URL · Stream Key = key above. Existing key stops being used by ReLive after reset.</div>
+        </section>
 
-      <article class="panel">
-        <div class="panel-head"><div><div class="eyebrow">Channel</div><h2>Known-good profile</h2></div><span id="channelStatus" class="status-chip unknown">UNKNOWN</span></div>
-        <dl class="profile-grid">
-          <div><dt>Resolution</dt><dd id="resolution">—</dd></div><div><dt>FPS</dt><dd id="fps">—</dd></div>
-          <div><dt>Video bitrate</dt><dd id="videoBitrate">—</dd></div><div><dt>Audio bitrate</dt><dd id="audioBitrate">—</dd></div>
-          <div><dt>Protocol</dt><dd id="protocol">—</dd></div><div><dt>Stream ID</dt><dd id="streamId" class="mono">—</dd></div>
-        </dl>
-        <div class="recommendation"><div class="stat-label">Latest recommendation</div><div id="recommendationTitle" class="recommendation-title">No test result</div><div id="recommendationReasons" class="muted">Run Test connection before going live.</div></div>
-      </article>
-    </section>
+        <section id="incidentPanel" class="incident-panel hidden advanced-only">
+          <div><div class="incident-title">Attention required</div><div id="incidentText" class="incident-text"></div></div>
+          <div id="incidentCount" class="incident-count">0</div>
+        </section>
 
-    <section class="panel">
-      <div class="panel-head">
-        <div><div class="eyebrow">Distribution</div><h2>Destination status</h2></div>
-        <div class="legend"><span><i class="dot live"></i>Live</span><span><i class="dot degraded"></i>Degraded</span><span><i class="dot failed"></i>Failed</span><span><i class="audio-dot healthy"></i>Audio healthy</span></div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Destination</th><th>Status</th><th>Integrity</th><th>Video</th><th>Audio</th><th>FPS</th><th>Reconnects</th><th>Updated</th><th>Problem</th><th>Control</th></tr></thead>
-          <tbody id="destinationRows"><tr><td colspan="10" class="empty">No destinations configured for this channel</td></tr></tbody>
-        </table>
-      </div>
-    </section>
+        <section class="status-strip advanced-only">
+          <article class="stat-card"><div class="stat-label">Input</div><div class="stat-line"><span class="dot live"></span><strong id="inputMetaStatus">—</strong></div><div id="inputMeta" class="muted">Waiting for input</div></article>
+          <article class="stat-card"><div class="stat-label">RTT</div><div class="metric"><span id="rttValue">—</span><small>ms</small></div><div class="muted">SRT only</div></article>
+          <article class="stat-card"><div class="stat-label">Link estimate</div><div class="metric"><span id="bwValue">—</span><small>Mbps</small></div><div id="headroomHint" class="muted">RTMP input uses publisher state</div></article>
+          <article class="stat-card"><div class="stat-label">SRT latency</div><div class="metric"><span id="latencyValue">—</span><small>ms</small></div><div id="bufferHint" class="muted">Advanced SRT only</div></article>
+        </section>
 
-    <section class="grid two">
-      <article class="panel">
-        <div class="panel-head"><div><div class="eyebrow">Packet counters</div><h2>SRT receive</h2></div></div>
-        <div class="counter-grid"><div><span>Unique</span><strong id="pktUnique">—</strong></div><div><span>Loss</span><strong id="pktLoss">—</strong></div><div><span>Retrans</span><strong id="pktRetrans">—</strong></div><div><span>Dropped</span><strong id="pktDrop">—</strong></div></div>
-      </article>
-      <article class="panel">
-        <div class="panel-head"><div><div class="eyebrow">Operator</div><h2>Incident timeline</h2></div><span class="badge">Persistent</span></div>
-        <div id="incidentTimeline" class="timeline"><div class="empty">No incidents recorded</div></div>
-      </article>
-    </section>
-  </main>
+        <section class="grid two advanced-only">
+          <article class="panel">
+            <div class="panel-head">
+              <div><div class="eyebrow">Contribution</div><h2>Network health</h2></div>
+              <div class="panel-tools">
+                <label class="compact-select">History
+                  <select id="historyRange"><option value="5">5 min</option><option value="15" selected>15 min</option><option value="60">1 hour</option></select>
+                </label>
+                <span id="sampleCount" class="badge">0 samples</span>
+              </div>
+            </div>
+            <div class="chart-stack">
+              <div class="chart-block"><div class="chart-head"><span>RTT</span><span id="rttRange">—</span></div><svg id="rttChart" class="spark" viewBox="0 0 700 150" preserveAspectRatio="none"></svg></div>
+              <div class="chart-block"><div class="chart-head"><span>Receive bitrate</span><span id="bwRange">—</span></div><svg id="bwChart" class="spark" viewBox="0 0 700 150" preserveAspectRatio="none"></svg></div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><div class="eyebrow">Channel</div><h2>Known-good profile</h2></div><span id="channelStatus" class="status-chip unknown">UNKNOWN</span></div>
+            <dl class="profile-grid">
+              <div><dt>Resolution</dt><dd id="resolution">—</dd></div><div><dt>FPS</dt><dd id="fps">—</dd></div>
+              <div><dt>Video bitrate</dt><dd id="videoBitrate">—</dd></div><div><dt>Audio bitrate</dt><dd id="audioBitrate">—</dd></div>
+              <div><dt>Protocol</dt><dd id="protocol">—</dd></div><div><dt>Internal ID</dt><dd id="streamId" class="mono">—</dd></div>
+            </dl>
+            <div class="recommendation"><div class="stat-label">Latest recommendation</div><div id="recommendationTitle" class="recommendation-title">No test result</div><div id="recommendationReasons" class="muted">RTMP is the default input. SRT testing remains available for advanced contribution.</div></div>
+          </article>
+        </section>
 
-  <footer><span id="apiState">API: checking</span><span>Polling: 2s</span><span>Telemetry retention: 24h default</span></footer>
+        <section class="panel">
+          <div class="panel-head">
+            <div><div class="eyebrow">Distribution</div><h2>Destinations</h2></div>
+            <div class="legend advanced-only"><span><i class="dot live"></i>Live</span><span><i class="dot degraded"></i>Degraded</span><span><i class="dot failed"></i>Failed</span></div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Destination</th><th>Status</th><th class="advanced-only-cell">Integrity</th><th class="advanced-only-cell">Video</th><th class="advanced-only-cell">Audio</th><th class="advanced-only-cell">FPS</th><th class="advanced-only-cell">Reconnects</th><th>Problem</th><th>Control</th></tr></thead>
+              <tbody id="destinationRows"><tr><td colspan="9" class="empty">No destinations configured for this channel</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="grid two advanced-only">
+          <article class="panel">
+            <div class="panel-head"><div><div class="eyebrow">Packet counters</div><h2>SRT receive</h2></div></div>
+            <div class="counter-grid"><div><span>Unique</span><strong id="pktUnique">—</strong></div><div><span>Loss</span><strong id="pktLoss">—</strong></div><div><span>Retrans</span><strong id="pktRetrans">—</strong></div><div><span>Dropped</span><strong id="pktDrop">—</strong></div></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><div class="eyebrow">Operator</div><h2>Incident timeline</h2></div><span class="badge">Persistent</span></div>
+            <div id="incidentTimeline" class="timeline"><div class="empty">No incidents recorded</div></div>
+          </article>
+        </section>
+      </main>
+      <footer><span id="apiState">API: checking</span><span>Polling: 2s</span><span>ReLive v0.7</span></footer>
+    </div>
+  </div>
   <script src="/app.js"></script>
 </body>
 </html>
