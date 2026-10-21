@@ -129,56 +129,54 @@ func (a *app) channelLiveTelemetry(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) listDestinationRuntime(w http.ResponseWriter, r *http.Request) {
-	channelID := strings.TrimSpace(r.URL.Query().Get("channel_id"))
-	owner := strings.TrimSpace(r.URL.Query().Get("owner_id"))
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
+
+	channelID:=strings.TrimSpace(r.URL.Query().Get("channel_id"))
 	q := `SELECT id,channel_id,owner_id,name,platform,enabled,desired_state,status,core_process_id,
 		output_bitrate_mbps,video_bitrate_kbps,audio_bitrate_kbps,fps,audio_status,audio_pps,
 		reconnect_count,quality_status,quality_reasons,source_video_codec,output_video_codec,
 		source_resolution,output_resolution,source_fps,output_fps,source_video_bitrate_kbps,
 		source_audio_codec,output_audio_codec,source_audio_hz,output_audio_hz,
 		source_audio_channels,output_audio_channels,last_error,last_status_at FROM destinations`
-	args := []any{}
-	if channelID != "" {
-		id, err := strconv.ParseInt(channelID,10,64)
-		if err != nil {
-			writeJSON(w,http.StatusBadRequest,map[string]string{"error":"invalid channel_id"})
-			return
-		}
+	args:=[]any{}
+
+	if channelID!="" {
+		id,err:=strconv.ParseInt(channelID,10,64)
+		if err!=nil { writeJSON(w,http.StatusBadRequest,map[string]string{"error":"invalid channel_id"});return }
+		if !a.canAccessChannel(r.Context(),u,id) { writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"});return }
 		q += " WHERE channel_id=$1"
-		args = append(args,id)
-	} else if owner != "" {
-		q += " WHERE owner_id=$1"
-		args = append(args, owner)
+		args=append(args,id)
+	} else {
+		switch u.Role {
+		case roleSuperAdministrator:
+		case roleAdministrator:
+			q += " WHERE owner_id=$1"
+			args=append(args,u.OwnerID)
+		default:
+			q += " WHERE channel_id IN (SELECT channel_id FROM user_channels WHERE user_id=$1)"
+			args=append(args,u.ID)
+		}
 	}
 	q += " ORDER BY name"
 
-	rows, err := a.db.QueryContext(r.Context(), q, args...)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
+	rows,err:=a.db.QueryContext(r.Context(),q,args...)
+	if err!=nil { serverError(w,err);return }
 	defer rows.Close()
 
-	out := []destinationRuntime{}
+	out:=[]destinationRuntime{}
 	for rows.Next() {
 		var d destinationRuntime
 		var qualityReasons []byte
-		if err := rows.Scan(&d.ID,&d.ChannelID,&d.OwnerID,&d.Name,&d.Platform,&d.Enabled,&d.DesiredState,
+		if err:=rows.Scan(&d.ID,&d.ChannelID,&d.OwnerID,&d.Name,&d.Platform,&d.Enabled,&d.DesiredState,
 			&d.Status,&d.CoreProcessID,&d.OutputBitrateMbps,&d.VideoBitrateKbps,&d.AudioBitrateKbps,
 			&d.FPS,&d.AudioStatus,&d.AudioPPS,&d.ReconnectCount,&d.QualityStatus,&qualityReasons,
 			&d.SourceVideoCodec,&d.OutputVideoCodec,&d.SourceResolution,&d.OutputResolution,
 			&d.SourceFPS,&d.OutputFPS,&d.SourceVideoKbps,&d.SourceAudioCodec,&d.OutputAudioCodec,
 			&d.SourceAudioHz,&d.OutputAudioHz,&d.SourceAudioChannels,&d.OutputAudioChannels,
-			&d.LastError,&d.LastStatusAt); err != nil {
-			serverError(w, err)
-			return
-		}
-		if len(qualityReasons)==0 {
-			d.QualityReasons=json.RawMessage("[]")
-		} else {
-			d.QualityReasons=json.RawMessage(qualityReasons)
-		}
-		out = append(out,d)
+			&d.LastError,&d.LastStatusAt);err!=nil { serverError(w,err);return }
+		if len(qualityReasons)==0 { d.QualityReasons=json.RawMessage("[]") } else { d.QualityReasons=json.RawMessage(qualityReasons) }
+		out=append(out,d)
 	}
 	writeJSON(w,http.StatusOK,out)
 }
