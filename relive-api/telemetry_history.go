@@ -197,11 +197,14 @@ func (c *telemetryCollector) prune(ctx context.Context) {
 }
 
 func (a *app) telemetryHistory(w http.ResponseWriter,r *http.Request) {
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
 	channelID,err:=strconv.ParseInt(r.PathValue("id"),10,64)
 	if err!=nil {
 		writeJSON(w,http.StatusBadRequest,map[string]string{"error":"invalid channel id"})
 		return
 	}
+	if !a.canAccessChannel(r.Context(),u,channelID) { writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"});return }
 
 	minutes:=15
 	if raw:=r.URL.Query().Get("minutes");raw!="" {
