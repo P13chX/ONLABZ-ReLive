@@ -163,8 +163,9 @@ func (a *app) login(w http.ResponseWriter, r *http.Request) {
 		hex.EncodeToString(sum[:]),u.ID,expires)
 	if err != nil { serverError(w,err); return }
 
+	secure:=strings.EqualFold(env("RELIVE_COOKIE_SECURE","false"),"true")
 	http.SetCookie(w,&http.Cookie{
-		Name:"relive_session",Value:raw,Path:"/",HttpOnly:true,Secure:false,
+		Name:"relive_session",Value:raw,Path:"/",HttpOnly:true,Secure:secure,
 		SameSite:http.SameSiteLaxMode,Expires:expires,
 	})
 	writeJSON(w,http.StatusOK,u)
@@ -175,7 +176,8 @@ func (a *app) logout(w http.ResponseWriter, r *http.Request) {
 		sum:=sha256.Sum256([]byte(c.Value))
 		_,_ = a.db.ExecContext(r.Context(),`DELETE FROM sessions WHERE token_hash=$1`,hex.EncodeToString(sum[:]))
 	}
-	http.SetCookie(w,&http.Cookie{Name:"relive_session",Value:"",Path:"/",HttpOnly:true,MaxAge:-1,Expires:time.Unix(0,0)})
+	secure:=strings.EqualFold(env("RELIVE_COOKIE_SECURE","false"),"true")
+	http.SetCookie(w,&http.Cookie{Name:"relive_session",Value:"",Path:"/",HttpOnly:true,Secure:secure,SameSite:http.SameSiteLaxMode,MaxAge:-1,Expires:time.Unix(0,0)})
 	writeJSON(w,http.StatusOK,map[string]bool{"ok":true})
 }
 
