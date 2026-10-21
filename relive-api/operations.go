@@ -61,6 +61,7 @@ type destinationRuntime struct {
 type liveTelemetry struct {
 	ChannelID            int64   `json:"channel_id"`
 	StreamID             string  `json:"stream_id"`
+	Protocol             string  `json:"protocol"`
 	Status               string  `json:"status"`
 	RTTMs                float64 `json:"rtt_ms"`
 	BandwidthMbit        float64 `json:"bandwidth_mbit"`
@@ -76,45 +77,54 @@ type liveTelemetry struct {
 }
 
 func (a *app) channelLiveTelemetry(w http.ResponseWriter, r *http.Request) {
-	c, err := a.channelByID(r.Context(), r.PathValue("id"))
-	if errors.Is(err, sql.ErrNoRows) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error":"channel not found"})
-		return
-	}
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error":"invalid channel id"})
-		return
-	}
+	u,ok:=currentUser(r.Context())
+	if !ok { writeJSON(w,http.StatusUnauthorized,map[string]string{"error":"unauthorized"});return }
+	id,err:=strconv.ParseInt(r.PathValue("id"),10,64)
+	if err!=nil { writeJSON(w,http.StatusBadRequest,map[string]string{"error":"invalid channel id"});return }
+	if !a.canAccessChannel(r.Context(),u,id) { writeJSON(w,http.StatusForbidden,map[string]string{"error":"forbidden"});return }
 
-	channels, err := a.core.srt(r.Context())
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error":"core telemetry unavailable"})
+	ch,err:=a.channelByID(r.Context(),r.PathValue("id"))
+	if errors.Is(err,sql.ErrNoRows) {
+		writeJSON(w,http.StatusNotFound,map[string]string{"error":"channel not found"})
 		return
 	}
-	stats, ok := findPublisher(channels, c.StreamID)
-	if !ok {
-		writeJSON(w, http.StatusOK, liveTelemetry{
-			ChannelID:c.ID, StreamID:c.StreamID, Status:"offline",
+	if err!=nil { serverError(w,err);return }
+
+	if strings.EqualFold(ch.IngestProtocol,"rtmp") {
+		publishers,err:=a.core.rtmp(r.Context())
+		if err!=nil {
+			writeJSON(w,http.StatusServiceUnavailable,map[string]string{"error":"core RTMP telemetry unavailable"})
+			return
+		}
+		status:="offline"
+		if findRTMPPublisher(publishers,ch.IngestApp,ch.StreamKey) { status="live" }
+		writeJSON(w,http.StatusOK,liveTelemetry{
+			ChannelID:ch.ID,StreamID:ch.StreamID,Protocol:"rtmp",Status:status,
 			ObservedAt:time.Now().UTC().Format(time.RFC3339),
 		})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, liveTelemetry{
-		ChannelID:c.ID,
-		StreamID:c.StreamID,
-		Status:"live",
-		RTTMs:stats.RTTMs,
-		BandwidthMbit:stats.BandwidthMbit,
-		RecvBufferMs:stats.RecvBufferMs,
-		SRTLatencyMs:stats.RecvTSBPDDelayMs,
-		RecvUniquePackets:stats.RecvPktUnique,
-		RecvLossPackets:stats.RecvLossPkt,
-		RecvRetransPackets:stats.RecvRetransPkt,
-		RecvDropPackets:stats.RecvDropPkt,
-		RecvUniqueBytes:stats.RecvUniqueBytes,
-		TimestampMs:stats.TimestampMs,
-		ObservedAt:time.Now().UTC().Format(time.RFC3339),
+	channels,err:=a.core.srt(r.Context())
+	if err!=nil {
+		writeJSON(w,http.StatusServiceUnavailable,map[string]string{"error":"core SRT telemetry unavailable"})
+		return
+	}
+	stats,ok:=findPublisher(channels,ch.StreamID)
+	if !ok {
+		writeJSON(w,http.StatusOK,liveTelemetry{
+			ChannelID:ch.ID,StreamID:ch.StreamID,Protocol:"srt",Status:"offline",
+			ObservedAt:time.Now().UTC().Format(time.RFC3339),
+		})
+		return
+	}
+	writeJSON(w,http.StatusOK,liveTelemetry{
+		ChannelID:ch.ID,StreamID:ch.StreamID,Protocol:"srt",Status:"live",
+		RTTMs:stats.RTTMs,BandwidthMbit:stats.BandwidthMbit,RecvBufferMs:stats.RecvBufferMs,
+		SRTLatencyMs:stats.RecvTSBPDDelayMs,RecvUniquePackets:stats.RecvPktUnique,
+		RecvLossPackets:stats.RecvLossPkt,RecvRetransPackets:stats.RecvRetransPkt,
+		RecvDropPackets:stats.RecvDropPkt,RecvUniqueBytes:stats.RecvUniqueBytes,
+		TimestampMs:stats.TimestampMs,ObservedAt:time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
